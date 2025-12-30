@@ -61,7 +61,7 @@ const TIMETABLE_SYSTEM_INSTRUCTION = `
 `;
 
 export const processTimetableImport = async (input: { text?: string, base64?: string, mimeType?: string }): Promise<AiImportResult | null> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     let contentParts: any[] = [];
@@ -80,9 +80,8 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
         return null;
     }
 
-    // Use 'gemini-3-flash-preview' for higher rate limits than Pro, and valid model existence.
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', 
+      model: 'gemini-flash-lite-latest', 
       contents: { parts: contentParts },
       config: {
         systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
@@ -160,7 +159,7 @@ const normalizeDays = (rawSchedule: any) => {
 };
 
 export const generateAiResponse = async (userPrompt: string, dataContext: any): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const systemInstruction = `
     You are the ${dataContext.schoolName} AI Assistant. 
@@ -169,9 +168,8 @@ export const generateAiResponse = async (userPrompt: string, dataContext: any): 
   `;
 
   try {
-    // Switch to gemini-3-flash-preview as 2.5-flash caused 404s
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-flash-lite-latest',
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,
