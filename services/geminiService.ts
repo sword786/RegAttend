@@ -80,13 +80,13 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
         return null;
     }
 
+    // Use 'gemini-3-flash-preview' for higher rate limits than Pro, and valid model existence.
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', 
+      model: 'gemini-3-flash-preview', 
       contents: { parts: contentParts },
       config: {
         systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 32768 },
       }
     });
 
@@ -169,12 +169,12 @@ export const generateAiResponse = async (userPrompt: string, dataContext: any): 
   `;
 
   try {
+    // Switch to gemini-3-flash-preview as 2.5-flash caused 404s
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,
-        thinkingConfig: { thinkingBudget: 0 } 
       }
     });
     return response.text || "I'm sorry, I couldn't generate a response.";
