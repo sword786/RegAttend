@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { X, Trash2, Save } from 'lucide-react';
+import { X, Trash2, Save, AlertCircle } from 'lucide-react';
 import { TimetableEntry } from '../types';
 import { useData } from '../contexts/DataContext';
 
@@ -22,13 +21,15 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
   const [subject, setSubject] = useState(currentEntry?.subject || '');
   const [room, setRoom] = useState(currentEntry?.room || '');
   const [relatedCode, setRelatedCode] = useState(currentEntry?.teacherOrClass || '');
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Filter valid options (if editing Class, show Teachers, etc.)
   const targetEntities = entities.filter(e => e.type !== entityType);
 
   const handleSave = () => {
     if (!subject.trim()) {
-        alert('Subject code is required');
+        setError('Subject code is required');
         return;
     }
     onSave({
@@ -39,11 +40,13 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
     onClose();
   };
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (window.confirm('Clear this slot?')) {
+  const handleDelete = () => {
+    if (isConfirmingDelete) {
         onSave(null);
         onClose();
+    } else {
+        setIsConfirmingDelete(true);
+        setTimeout(() => setIsConfirmingDelete(false), 3000); // Reset after 3s
     }
   };
 
@@ -61,14 +64,20 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
         </div>
 
         <div className="p-6 space-y-4">
+            {error && (
+                <div className="p-3 bg-rose-50 border border-rose-100 rounded-lg flex items-center gap-2 text-rose-600 text-xs font-bold animate-in slide-in-from-top-2">
+                    <AlertCircle className="w-4 h-4" /> {error}
+                </div>
+            )}
+            
             <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Subject Code</label>
                 <input 
                     autoFocus
                     value={subject}
-                    onChange={e => setSubject(e.target.value)}
+                    onChange={e => { setSubject(e.target.value); setError(null); }}
                     placeholder="e.g. MATH, ENG"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-accent outline-none"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-accent outline-none font-bold"
                 />
             </div>
             
@@ -80,7 +89,7 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
                     <select
                         value={relatedCode}
                         onChange={e => setRelatedCode(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-accent outline-none"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-accent outline-none font-bold text-sm"
                     >
                         <option value="">-- No Selection --</option>
                         {targetEntities.map(e => (
@@ -96,24 +105,29 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
                         value={room}
                         onChange={e => setRoom(e.target.value)}
                         placeholder="e.g. 101"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-accent outline-none"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-accent outline-none font-bold"
                     />
                 </div>
             </div>
         </div>
 
-        <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-between">
+        <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
             <button 
                 onClick={handleDelete}
-                className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium flex items-center"
+                className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center transition-all ${
+                    isConfirmingDelete 
+                    ? 'bg-rose-600 text-white shadow-lg animate-pulse' 
+                    : 'text-rose-600 hover:bg-rose-50'
+                }`}
             >
-                <Trash2 className="w-4 h-4 mr-2" /> Clear Slot
+                <Trash2 className="w-4 h-4 mr-2" /> 
+                {isConfirmingDelete ? 'Confirm Clear?' : 'Clear Slot'}
             </button>
             <div className="flex gap-2">
                 <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm font-medium">Cancel</button>
                 <button 
                     onClick={handleSave}
-                    className="px-4 py-2 bg-primary text-white hover:bg-slate-800 rounded-lg text-sm font-medium flex items-center"
+                    className="px-6 py-2 bg-primary text-white hover:bg-slate-800 rounded-lg text-sm font-bold flex items-center shadow-md active:scale-95 transition-all"
                 >
                     <Save className="w-4 h-4 mr-2" /> Save Changes
                 </button>

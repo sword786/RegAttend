@@ -4,46 +4,63 @@ import { EntityProfile, TimeSlot, AiImportResult } from '../types';
 
 const TIMETABLE_SYSTEM_INSTRUCTION = `
     You are a professional School Timetable Digitizer. 
-    Your goal: Convert timetable documents (PDFs, Images, or Text) into structured JSON.
+    Your goal: Convert multi-page school timetable documents into structured JSON.
 
-    EXTRACTION RULES:
-    1. IDENTIFY PROFILES: Look for headers that are Teacher Names or Class Names (e.g., "7A", "Mr. John"). Each is a "profile".
-    2. WEEKLY GRID: Your school week is SATURDAY to THURSDAY. Ignore Friday.
-    3. SLOT MAPPING: For each profile, find the grid of Periods (1-9) vs Days.
-    4. DATA FIELDS: 
-       - "subject": The lesson name (e.g., "MATH").
-       - "room": The location (e.g., "S1").
-       - "code": 
-         - In a CLASS profile, "code" is the Teacher's initials.
-         - In a TEACHER profile, "code" is the Class Name (e.g., "10C").
+    ### 1. DOCUMENT STRUCTURE
+    - Pages 1-8: CLASS-WISE view (Header is a Class Name like "S1", "Secondary 1").
+    - Pages 9-19: TEACHER-WISE view (Header is a Teacher Name like "Mr. Smith").
 
-    CRITICAL REASONING:
-    Timetables are often complex tables. Use your thinking capacity to trace rows and columns carefully. 
-    Look for vertical and horizontal alignment. If you see a name at the top of a column or the start of a row, treat it as the Profile Name.
+    ### 2. CORE EXTRACTION RULES
+
+    #### IN TEACHER-WISE VIEW (Pages 9-19):
+    - **Identify the Class (CENTER TEXT):** The text in the center is the Class ID/Name.
+    - **COMBINED CLASSES (AH Logic):** 
+        - If the center contains slashes (e.g., "S2/D2"), set type: "combined" and targetClasses: ["S2", "D2"].
+        - IMPORTANT: Do NOT include slash-separated strings (like "S2/D2") in the "unknownCodes" list.
+    - **REGULAR CLASSES:** If it's a single class ID (e.g. "S1"), include it in "unknownCodes" for name mapping.
+    - **Subject & Venue:** Top-left is Subject, Top-right is Venue.
+
+    #### IN CLASS-WISE VIEW (Pages 1-8):
+    - **Subject (CENTER TEXT):** The primary subject.
+    - **ELECTIVE PERIODS (ELV Logic):**
+        - Trigger: Subject is "ELV" or "HS" AND footer has multiple teachers (e.g., "IYS / MRD / NJB").
+        - Action: For each teacher in that footer, create a "Virtual Class" identifier: "ELV-[TeacherCode]" (e.g., "ELV-IYS").
+        - Set type: "split".
+        - MANDATORY: Include all "ELV-[TeacherCode]" strings in the "unknownCodes" list so the user can assign a unique class name for that specific teacher's group.
+    - **REGULAR PERIODS:** Footer contains a single Teacher Code. Include the Teacher Code in "unknownCodes" for name mapping.
+
+    ### 3. OUTPUT SPECIFICATION
+    - "code": The identifier found (Teacher Code in Class View, Class ID in Teacher View, or "ELV-[TeacherCode]").
+    - "type": "split" (ELV groups), "combined" (AH sessions), or "normal".
+    - "unknownCodes": Collect unique identifiers that need mapping.
+        - INCLUDE: "ELV-..." codes, single Teacher Codes, single Class IDs.
+        - EXCLUDE: "AH" or slash-separated combined strings like "S1/D1".
 
     OUTPUT FORMAT (STRICT JSON ONLY):
     {
       "detectedType": "TEACHER_WISE" | "CLASS_WISE",
       "profiles": [
         {
-          "name": "Full Name of Class or Teacher",
+          "name": "Full Profile Name",
           "schedule": {
-            "Sat": { "1": { "subject": "ENG", "room": "1", "code": "JD" } },
-            "Sun": { ... },
-            ... up to "Thu"
+            "Sat": { 
+              "1": { 
+                "subject": "MATH", 
+                "room": "101", 
+                "code": "10A",
+                "type": "normal",
+                "teachers": [],
+                "targetClasses": []
+              } 
+            }
           }
         }
       ],
-      "unknownCodes": ["List", "of", "all", "unique", "codes", "found", "in", "slots"]
+      "unknownCodes": ["ELV-IYS", "JD", "10A"]
     }
 `;
 
-/**
- * Parses timetable using Gemini 3 Flash with reasoning enabled.
- * Flash is used for broad availability and speed.
- */
 export const processTimetableImport = async (input: { text?: string, base64?: string, mimeType?: string }): Promise<AiImportResult | null> => {
-  // Always create a fresh instance to use the most recent API Key from environment
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
   try {
@@ -56,7 +73,7 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
             mimeType: input.mimeType 
           } 
         });
-        contentParts.push({ text: "Please carefully analyze this image/document. It is a school timetable. I need you to extract every single period for every teacher or class visible. Think through the table structure before outputting JSON." });
+        contentParts.push({ text: "Digitize this timetable. CENTER text in teacher cells is the Class Name. Identify 'ELV' + multi-teachers as virtual 'ELV-Code' classes. Identify 'S2/D2' as combined sessions and skip their mapping." });
     } else if (input.text) {
         contentParts.push({ text: input.text });
     } else {
@@ -64,13 +81,12 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', 
+      model: 'gemini-3-pro-preview', 
       contents: { parts: contentParts },
       config: {
         systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        // Enable thinking to handle messy table layouts - 12k budget for reasoning
-        thinkingConfig: { thinkingBudget: 12000 },
+        thinkingConfig: { thinkingBudget: 32768 },
       }
     });
 
@@ -80,7 +96,6 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
     const data = JSON.parse(responseText);
 
     if (!data.profiles || data.profiles.length === 0) {
-        console.warn("AI extraction returned 0 profiles.");
         return {
             detectedType: data.detectedType || 'CLASS_WISE',
             profiles: [],
@@ -131,8 +146,9 @@ const normalizeDays = (rawSchedule: any) => {
                   const slot = periods[pNum];
                   if (slot && slot.subject) {
                       newSchedule[normalized][pNum] = {
+                          ...slot,
                           subject: slot.subject.toUpperCase(),
-                          room: slot.room || '',
+                          room: slot.room || slot.venue || '',
                           teacherOrClass: slot.code || ''
                       };
                   }
@@ -154,11 +170,11 @@ export const generateAiResponse = async (userPrompt: string, dataContext: any): 
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,
-        thinkingConfig: { thinkingBudget: 0 } // No reasoning needed for simple chat
+        thinkingConfig: { thinkingBudget: 0 } 
       }
     });
     return response.text || "I'm sorry, I couldn't generate a response.";

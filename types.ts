@@ -7,9 +7,15 @@ export interface TimeSlot {
 }
 
 export interface TimetableEntry {
-  subject: string; // e.g., "ENG", "MATH"
-  room?: string; // e.g., "S1", "LAB"
-  teacherOrClass?: string; // Depending on view context. If viewing Class, this is Teacher code. If viewing Teacher, this is Class code.
+  subject: string; // e.g., "ENG", "MATH", "AH", "ELV"
+  room?: string; // Venue / Room number
+  teacherOrClass?: string; // Primary code (e.g., "JD" or "10A")
+  
+  // Advanced session metadata
+  type?: 'split' | 'combined' | 'normal';
+  teachers?: string[]; // For "split" logic: list of participating teachers
+  targetClasses?: string[]; // For "combined" logic: list of participating classes
+  venue?: string; // Dedicated field for location (P-Hall, Lab, etc.)
 }
 
 // Map: Day -> Period Index (1-9) -> Entry

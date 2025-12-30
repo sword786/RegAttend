@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Check, Clock, CalendarDays, Users, AlertCircle, Edit2, Download, FileSpreadsheet } from 'lucide-react';
-import { AttendanceStatus, TimetableEntry, AttendanceRecord } from '../types';
+import { X, Check, Clock, CalendarDays, Users, AlertCircle, FileSpreadsheet, Layers, ChevronDown } from 'lucide-react';
+import { AttendanceStatus, TimetableEntry, AttendanceRecord, EntityProfile } from '../types';
 import { useData } from '../contexts/DataContext';
 
 interface AttendanceModalProps {
@@ -19,53 +20,64 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
   const { students, getAttendanceForPeriod, markAttendance, entities } = useData();
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [activeClassId, setActiveClassId] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
-  const [isUpdateMode, setIsUpdateMode] = useState(false);
 
-  // Resolve the actual Class ID regardless of whether we are viewing a Teacher or Class schedule
-  const effectiveClassInfo = useMemo(() => {
+  // Determine available rosters for this session
+  const rosterOptions = useMemo(() => {
     const rootEntity = entities.find(e => e.id === entityId);
     
-    // Case 1: We are in Class View
-    if (rootEntity?.type === 'CLASS') {
-        return { id: rootEntity.id, name: rootEntity.name };
-    } 
-    
-    // Case 2: We are in Teacher View -> Find the class from the entry code
-    if (rootEntity?.type === 'TEACHER' && entry.teacherOrClass) {
-        const targetCode = entry.teacherOrClass;
-        const foundClass = entities.find(e => 
-            e.type === 'CLASS' && (e.shortCode === targetCode || e.name === targetCode)
+    // Combined (AH) Session: Multiple target classes share one teacher period
+    if (entry.type === 'combined' && entry.targetClasses && entry.targetClasses.length > 0) {
+        return entities.filter(e => 
+            e.type === 'CLASS' && (entry.targetClasses?.includes(e.shortCode || '') || entry.targetClasses?.includes(e.name))
         );
-        if (foundClass) return { id: foundClass.id, name: foundClass.name };
     }
 
-    return null;
+    // Class View: Direct register for that class
+    if (rootEntity?.type === 'CLASS') {
+        return [rootEntity];
+    } 
+    
+    // Teacher View: The mapped class ID for this slot
+    if (rootEntity?.type === 'TEACHER' && entry.teacherOrClass) {
+        const foundClass = entities.find(e => 
+            e.type === 'CLASS' && (e.shortCode === entry.teacherOrClass || e.name === entry.teacherOrClass)
+        );
+        if (foundClass) return [foundClass];
+    }
+
+    return [];
   }, [entityId, entities, entry]);
 
-  // Filter students by the resolved Class ID
-  const targetClassStudents = useMemo(() => {
-      if (!effectiveClassInfo) return [];
-      return students.filter(s => s.classId === effectiveClassInfo.id);
-  }, [students, effectiveClassInfo]);
+  // Set default active class roster
+  useEffect(() => {
+    if (isOpen && rosterOptions.length > 0 && !activeClassId) {
+        setActiveClassId(rosterOptions[0].id);
+    }
+  }, [isOpen, rosterOptions, activeClassId]);
+
+  const activeClass = useMemo(() => entities.find(e => e.id === activeClassId), [entities, activeClassId]);
+  
+  const targetStudents = useMemo(() => {
+      if (!activeClassId) return [];
+      return students.filter(s => s.classId === activeClassId);
+  }, [students, activeClassId]);
 
   useEffect(() => {
-    if (isOpen && effectiveClassInfo) {
-      const existingRecords = getAttendanceForPeriod(selectedDate, effectiveClassInfo.id, period);
+    if (isOpen && activeClassId) {
+      const records = getAttendanceForPeriod(selectedDate, activeClassId, period);
       const initial: Record<string, AttendanceStatus> = {};
-      const hasData = existingRecords.length > 0;
       
-      targetClassStudents.forEach(s => {
-        const record = existingRecords.find(r => r.studentId === s.id);
-        // If record exists use it, otherwise default to PRESENT
+      targetStudents.forEach(s => {
+        const record = records.find(r => r.studentId === s.id);
         initial[s.id] = record ? record.status : 'PRESENT';
       });
       
       setAttendance(initial);
-      setIsUpdateMode(hasData);
       setIsSaved(false);
     }
-  }, [isOpen, selectedDate, effectiveClassInfo, period, targetClassStudents, getAttendanceForPeriod]);
+  }, [isOpen, selectedDate, activeClassId, period, targetStudents, getAttendanceForPeriod]);
 
   const toggleStatus = (studentId: string) => {
     setAttendance(prev => {
@@ -90,36 +102,40 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
   };
 
   const handleSave = () => {
-    if (!effectiveClassInfo) return;
+    if (!activeClassId) return;
 
-    const records: AttendanceRecord[] = targetClassStudents.map(student => ({
+    const records: AttendanceRecord[] = targetStudents.map(student => ({
       date: selectedDate,
       period,
-      entityId: effectiveClassInfo.id, // Ensure we save against the Class ID
+      entityId: activeClassId,
       studentId: student.id,
       status: attendance[student.id] || 'PRESENT'
     }));
 
     markAttendance(records);
     setIsSaved(true);
-    setIsUpdateMode(true); // Switch to update mode visual after saving
-    setTimeout(() => onClose(), 800);
+    setTimeout(() => {
+        // If it's the only class, close the modal. If combined, stay to allow switching to other rosters.
+        if (rosterOptions.length === 1) onClose();
+        else setIsSaved(false);
+    }, 800);
   }
 
   const handleExportSingleCSV = () => {
-    if (!effectiveClassInfo) return;
+    if (!activeClass) return;
 
-    const header = ["Student Name", "Roll Number", "Status", "Date", "Period", "Subject"];
+    const header = ["Student Name", "Roll Number", "Status", "Date", "Period", "Subject", "Venue"];
     let csvContent = "data:text/csv;charset=utf-8," + header.join(",") + "\n";
 
-    targetClassStudents.forEach(student => {
+    targetStudents.forEach(student => {
         const row = [
             `"${student.name}"`,
             student.rollNumber,
             attendance[student.id] || 'PRESENT',
             selectedDate,
             `Period ${period}`,
-            `"${entry.subject}"`
+            `"${entry.subject}"`,
+            `"${entry.room || entry.venue || ''}"`
         ];
         csvContent += row.join(",") + "\n";
     });
@@ -127,7 +143,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `${effectiveClassInfo.name}_P${period}_${selectedDate}.csv`);
+    link.setAttribute("download", `${activeClass.name}_P${period}_${selectedDate}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -143,15 +159,16 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
         <div className="p-6 border-b border-slate-100 bg-white space-y-4">
           <div className="flex items-start justify-between">
             <div>
-              <h2 className="text-2xl font-black text-slate-800 tracking-tight">Attendance Register</h2>
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight">{entry.subject} Registry</h2>
               <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-600">
                 <span className="flex items-center font-bold bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 text-slate-600">
                     <Clock className="w-3.5 h-3.5 mr-1.5 text-slate-400"/> P{period} • {day}
                 </span>
-                <span className="font-bold text-white px-2.5 py-1 bg-blue-500 rounded-lg shadow-sm shadow-blue-200">{entry.subject}</span>
-                <span className="font-bold text-slate-700 flex items-center px-2.5 py-1 rounded-lg border border-slate-100">
-                    {effectiveClassInfo ? effectiveClassInfo.name : classNameOrTeacherName}
-                </span>
+                {entry.type === 'combined' && (
+                    <span className="font-black text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg uppercase tracking-widest flex items-center border border-indigo-100">
+                        <Layers className="w-3 h-3 mr-1" /> Combined Session
+                    </span>
+                )}
               </div>
             </div>
             <button onClick={onClose} className="text-slate-300 hover:text-slate-600 p-2 hover:bg-slate-50 rounded-full transition-colors">
@@ -160,49 +177,56 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-between items-center pt-2">
-              <div className="flex items-center gap-3 bg-slate-50 p-1.5 pr-4 rounded-xl border border-slate-200 hover:border-blue-400 transition-colors cursor-pointer group w-full sm:w-auto">
-                <div className="p-2 bg-white rounded-lg shadow-sm group-hover:shadow text-blue-500">
-                    <CalendarDays className="w-5 h-5" />
-                </div>
-                <div className="flex flex-col">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Selected Date</span>
-                    <input 
-                      type="date" 
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                      className="border-none bg-transparent text-sm font-black text-slate-800 focus:ring-0 cursor-pointer outline-none p-0"
-                    />
-                </div>
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                 {/* Class Selector for Combined Sessions */}
+                 {rosterOptions.length > 1 && (
+                     <div className="relative">
+                        <label className="absolute -top-2 left-2 px-1 bg-white text-[9px] font-black text-blue-500 uppercase tracking-widest z-10">Select Class Register</label>
+                        <select 
+                            value={activeClassId || ''} 
+                            onChange={(e) => setActiveClassId(e.target.value)}
+                            className="w-full sm:w-56 px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-xl text-sm font-black text-slate-700 outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-blue-100"
+                        >
+                            {rosterOptions.map(cls => <option key={cls.id} value={cls.id}>{cls.name}</option>)}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-blue-400 pointer-events-none" />
+                     </div>
+                 )}
+                 
+                 <div className="flex items-center gap-3 bg-slate-50 p-1.5 pr-4 rounded-xl border border-slate-200 w-full sm:w-auto">
+                    <div className="p-2 bg-white rounded-lg shadow-sm text-blue-500">
+                        <CalendarDays className="w-5 h-5" />
+                    </div>
+                    <div className="flex flex-col">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Date</span>
+                        <input 
+                          type="date" 
+                          value={selectedDate}
+                          onChange={(e) => setSelectedDate(e.target.value)}
+                          className="border-none bg-transparent text-sm font-black text-slate-800 focus:ring-0 cursor-pointer outline-none p-0"
+                        />
+                    </div>
+                  </div>
               </div>
 
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button 
-                   onClick={handleExportSingleCSV}
-                   className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2.5 bg-white border border-slate-200 text-slate-600 hover:text-green-700 hover:border-green-200 hover:bg-green-50 rounded-xl text-xs font-bold transition-all"
-                >
-                   <FileSpreadsheet className="w-4 h-4 mr-2" />
-                   Export CSV
-                </button>
-                
-                {isUpdateMode && !isSaved && (
-                    <div className="hidden sm:flex items-center px-4 py-2.5 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold border border-blue-100">
-                        <Check className="w-4 h-4 mr-2" />
-                        Records Found
-                    </div>
-                )}
-              </div>
+              <button 
+                 onClick={handleExportSingleCSV}
+                 className="flex items-center justify-center px-4 py-2.5 bg-white border border-slate-200 text-slate-600 hover:text-green-700 hover:border-green-200 hover:bg-green-50 rounded-xl text-xs font-bold transition-all w-full sm:w-auto"
+              >
+                 <FileSpreadsheet className="w-4 h-4 mr-2" />
+                 Export CSV
+              </button>
           </div>
         </div>
 
         {/* List Content */}
         <div className="flex-1 overflow-y-auto p-6 bg-white relative">
-           {/* Decorative bg */}
            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] opacity-20 pointer-events-none"></div>
 
-          {effectiveClassInfo ? (
-              targetClassStudents.length > 0 ? (
+          {activeClassId ? (
+              targetStudents.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative z-10">
-                  {targetClassStudents.map((student) => (
+                  {targetStudents.map((student) => (
                     <div 
                       key={student.id}
                       onClick={() => toggleStatus(student.id)}
@@ -234,31 +258,30 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                    </div>
                    <p className="text-slate-600 font-bold text-lg">No students found</p>
                    <p className="text-sm text-slate-400 mt-1 max-w-xs mx-auto">
-                        There are no students registered in <span className="text-slate-800 font-bold">{effectiveClassInfo.name}</span> yet.
+                        No students found for <span className="text-slate-800 font-bold">{activeClass?.name}</span> roster.
                    </p>
                 </div>
               )
           ) : (
              <div className="h-full flex flex-col items-center justify-center text-center p-10 relative z-10">
                 <AlertCircle className="w-12 h-12 text-slate-200 mb-4" />
-                <p className="text-slate-500 font-medium">Could not identify Class.</p>
-                <p className="text-xs text-slate-400 mt-1">This slot might not be linked correctly.</p>
+                <p className="text-slate-500 font-medium">Could not identify Roster.</p>
+                <p className="text-xs text-slate-400 mt-1">Please ensure this session is mapped to valid classes/teachers.</p>
              </div>
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-4 bg-white border-t border-slate-100 flex justify-between items-center z-20">
             <div className="text-xs font-bold text-slate-400 pl-2">
-                {targetClassStudents.length} Students Total
+                {targetStudents.length} Students in {activeClass?.name}
             </div>
             <button 
                 onClick={handleSave}
-                disabled={!effectiveClassInfo || targetClassStudents.length === 0}
+                disabled={!activeClassId || targetStudents.length === 0}
                 className="px-8 py-3 bg-slate-900 text-white rounded-xl text-sm font-bold shadow-lg hover:bg-slate-800 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center"
             >
                 {isSaved ? <Check className="w-4 h-4 mr-2" /> : null}
-                {isSaved ? 'Saved Successfully' : 'Save Attendance'}
+                {isSaved ? 'Attendance Saved' : 'Save Registry'}
             </button>
         </div>
       </div>

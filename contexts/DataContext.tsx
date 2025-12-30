@@ -119,20 +119,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setAiImportStatus('REVIEW');
         } else if (result && result.profiles.length === 0) {
             setAiImportStatus('ERROR');
-            setAiImportErrorMessage("Gemini recognized the file but couldn't find any timetable profiles. Please ensure the names/headers are clear.");
+            setAiImportErrorMessage("Gemini couldn't find any timetable headers. Please ensure headers (e.g., 'S1', 'Teacher X') are clear.");
         } else {
             setAiImportStatus('ERROR');
-            setAiImportErrorMessage("Failed to process document. Try a different format or clearer file.");
+            setAiImportErrorMessage("Failed to process document. Try a different format.");
         }
     } catch (err: any) {
         console.error("AI Import Error:", err);
         setAiImportStatus('ERROR');
-        const msg = err.message || "";
-        if (msg.includes('429') || err.status === 'RESOURCE_EXHAUSTED') {
-            setAiImportErrorMessage("Quota exceeded for Gemini 3 Pro. Please wait a minute or use a paid API Key.");
-        } else {
-            setAiImportErrorMessage(`Extraction failed: ${msg.substring(0, 100)}`);
-        }
+        setAiImportErrorMessage(err.message || "Extraction failed.");
     }
   };
 
@@ -148,11 +143,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const newEntities: EntityProfile[] = [];
     const { detectedType, profiles } = aiImportResult;
 
+    // Create main profiles
     profiles.forEach(p => {
         const type = detectedType === 'TEACHER_WISE' ? 'TEACHER' : 'CLASS';
-        const code = detectedType === 'TEACHER_WISE' 
-            ? p.name.split(' ').map(n => n[0]).join('').substring(0, 3).toUpperCase()
-            : p.name.substring(0, 5).toUpperCase().replace(/ /g, '');
+        const code = p.name.length <= 5 
+            ? p.name.toUpperCase() 
+            : p.name.split(' ').map(n => n[0]).join('').substring(0, 4).toUpperCase();
             
         newEntities.push({
             id: `${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -165,32 +161,42 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const secondaryType = detectedType === 'TEACHER_WISE' ? 'CLASS' : 'TEACHER';
     
+    // Create secondary profiles from mappings
     Object.entries(mappings).forEach(([code, realName]) => {
         if (!realName.trim()) return;
 
-        const newId = `${secondaryType.toLowerCase()}-${Date.now()}-${code}`;
+        // Force ELV codes to be CLASS type (Elective groups are separate class populations)
+        const effectiveType = code.startsWith('ELV-') ? 'CLASS' : secondaryType;
+
+        const newId = `${effectiveType.toLowerCase()}-${Date.now()}-${code.replace(/\//g, '_').replace(/-/g, '_')}`;
         const secondaryEntity: EntityProfile = {
             id: newId,
             name: realName,
             shortCode: code,
-            type: secondaryType,
+            type: effectiveType,
             schedule: {} as any
         };
 
+        // Populate schedules
         profiles.forEach((mainProfile) => {
-            const mainEntity = newEntities.find(e => e.name === mainProfile.name);
-            if (!mainEntity) return;
+            const mainEntityInNew = newEntities.find(e => e.name === mainProfile.name);
+            if (!mainEntityInNew) return;
 
             Object.entries(mainProfile.schedule).forEach(([day, slots]: [string, any]) => {
                 if (!slots) return;
                 Object.entries(slots).forEach(([periodStr, entry]: [string, any]) => {
                     const period = parseInt(periodStr);
-                    if (entry && entry.teacherOrClass === code) {
+                    const isDirectMatch = entry && entry.teacherOrClass === code;
+                    const isListMatch = entry && (
+                        (entry.teachers && entry.teachers.includes(code)) || 
+                        (entry.targetClasses && entry.targetClasses.includes(code))
+                    );
+
+                    if (isDirectMatch || isListMatch) {
                         if (!secondaryEntity.schedule[day as DayOfWeek]) secondaryEntity.schedule[day as DayOfWeek] = {};
                         secondaryEntity.schedule[day as DayOfWeek][period] = {
-                            subject: entry.subject,
-                            room: entry.room,
-                            teacherOrClass: mainEntity.shortCode || mainEntity.name
+                            ...entry,
+                            teacherOrClass: mainEntityInNew.shortCode || mainEntityInNew.name
                         };
                     }
                 });
@@ -243,9 +249,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }));
 
-      const nextSourceEntity = nextEntities.find(e => e.id === entityId);
-      if (!nextSourceEntity) return nextEntities;
-
       const setEntitySlot = (targetId: string, newSlotVal: TimetableEntry | null) => {
         const target = nextEntities.find(e => e.id === targetId);
         if (target) {
@@ -266,8 +269,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         );
         if (targetEntity) {
           const mirrorEntry: TimetableEntry = {
-            subject: entry.subject,
-            room: entry.room,
+            ...entry,
             teacherOrClass: sourceIdentifier
           };
           setEntitySlot(targetEntity.id, mirrorEntry);

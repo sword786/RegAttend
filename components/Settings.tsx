@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
-import { Trash2, Plus, FileText, Sparkles, Loader2, FileUp, Check, X, Upload, AlertCircle, ArrowRight, Pencil, Clock, Key, ExternalLink, Save, Download, RotateCcw, UserPlus } from 'lucide-react';
+import { Trash2, Plus, FileText, Sparkles, Loader2, FileUp, Check, X, Upload, AlertCircle, ArrowRight, Pencil, Clock, Key, ExternalLink, Save, Download, RotateCcw, UserPlus, Layers } from 'lucide-react';
 import { EntityProfile, TimeSlot } from '../types';
 
 type SettingsTab = 'general' | 'timetable' | 'teachers' | 'classes' | 'students' | 'import';
@@ -19,11 +19,36 @@ export const Settings: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   
+  // Custom Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmText?: string;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const triggerConfirm = (title: string, message: string, onConfirm: () => void, confirmText = "Yes, Delete") => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      onConfirm,
+      confirmText
+    });
+  };
+
   // Student Management State
   const [bulkStudentInput, setBulkStudentInput] = useState('');
   const [targetClassId, setTargetClassId] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentRoll, setNewStudentRoll] = useState('');
+  const [importStatus, setImportStatus] = useState<string | null>(null);
 
   // AI Import State
   const [aiTimetableInput, setAiTimetableInput] = useState('');
@@ -51,19 +76,6 @@ export const Settings: React.FC = () => {
   useEffect(() => {
     setLocalTimeSlots(timeSlots);
   }, [timeSlots]);
-
-  // Clean up state when tab changes to prevent UI glitches
-  useEffect(() => {
-    setIsAddingEntity(null);
-    setEditingId(null);
-    setNewEntityName('');
-    setNewEntityCode('');
-    setEditName('');
-    setEditCode('');
-    setIsEditingSlots(false);
-    setAiTimetableInput('');
-    cancelAiImport();
-  }, [activeTab, cancelAiImport]);
 
   // Set default class for student import if available
   useEffect(() => {
@@ -120,7 +132,6 @@ export const Settings: React.FC = () => {
     
     lines.forEach(line => {
       if (!line.trim()) return;
-      // Support "Name, Roll" or just "Name"
       const parts = line.split(',');
       const name = parts[0].trim();
       const roll = parts.length > 1 ? parts[1].trim() : `R-${Math.floor(Math.random() * 10000)}`;
@@ -137,7 +148,8 @@ export const Settings: React.FC = () => {
     });
     
     setBulkStudentInput('');
-    alert(`Successfully imported ${count} students.`);
+    setImportStatus(`Successfully imported ${count} students.`);
+    setTimeout(() => setImportStatus(null), 3000);
   };
 
   const handleAddSingleStudent = () => {
@@ -263,12 +275,11 @@ export const Settings: React.FC = () => {
                     <div className="flex items-center gap-2">
                         <button onClick={() => startEditing(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"><Pencil className="w-4 h-4" /></button>
                         <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (window.confirm(`Are you sure you want to delete ${item.name}? This cannot be undone.`)) {
-                              deleteEntity(item.id);
-                            }
-                          }} 
+                          onClick={() => triggerConfirm(
+                            "Delete Registry Entry?", 
+                            `Are you sure you want to delete ${item.name}? All linked schedule data will be lost.`, 
+                            () => deleteEntity(item.id)
+                          )}
                           className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -326,7 +337,10 @@ export const Settings: React.FC = () => {
                              className="w-full h-40 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:bg-white focus:ring-2 focus:ring-blue-50 transition-all placeholder:text-slate-300"
                          />
                          <div className="flex justify-between items-center">
-                             <span className="text-[10px] text-slate-400 font-medium">Format: Name, Roll Number (One per line)</span>
+                             <div className="flex flex-col">
+                                <span className="text-[10px] text-slate-400 font-medium">Format: Name, Roll Number (One per line)</span>
+                                {importStatus && <span className="text-[10px] text-emerald-600 font-bold animate-pulse">{importStatus}</span>}
+                             </div>
                              <button onClick={handleBulkImportStudents} disabled={!bulkStudentInput.trim()} className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 disabled:opacity-50 transition-all">
                                  Process Import
                              </button>
@@ -376,12 +390,11 @@ export const Settings: React.FC = () => {
                                 <p className="text-[10px] font-bold text-slate-400 uppercase">{student.rollNumber}</p>
                             </div>
                             <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (window.confirm(`Remove ${student.name} from class?`)) {
-                                        deleteStudent(student.id);
-                                    }
-                                }}
+                                onClick={() => triggerConfirm(
+                                    "Delete Student Record?", 
+                                    `Are you sure you want to delete ${student.name}? This will also remove their attendance history.`, 
+                                    () => deleteStudent(student.id)
+                                )}
                                 className="p-2 text-slate-300 hover:text-rose-500 rounded-lg transition-colors"
                             >
                                 <Trash2 className="w-4 h-4" />
@@ -450,13 +463,12 @@ export const Settings: React.FC = () => {
                               <div className="col-span-2 flex justify-center">
                                   {isEditingSlots && (
                                       <button 
-                                          onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (window.confirm('Delete this time slot?')) {
-                                                  handleRemoveSlot(idx);
-                                              }
-                                          }} 
-                                          className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                                        onClick={() => triggerConfirm(
+                                            "Remove Time Period?", 
+                                            `Delete Period ${slot.period}? This will shift subsequent periods.`, 
+                                            () => handleRemoveSlot(idx)
+                                        )}
+                                        className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
                                       >
                                           <Trash2 className="w-4 h-4" />
                                       </button>
@@ -492,14 +504,31 @@ export const Settings: React.FC = () => {
                   </div>
               </div>
 
-              <div className="p-6 sm:p-8 space-y-8">
+              <div className="p-6 sm:p-8 space-y-6">
+                  <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 flex items-start gap-4">
+                      <div className="p-2 bg-white rounded-xl shadow-sm text-blue-500">
+                          <Layers className="w-5 h-5" />
+                      </div>
+                      <div>
+                          <h4 className="text-sm font-black text-blue-700 uppercase tracking-widest">Mapping Instructions</h4>
+                          <p className="text-xs text-blue-600 mt-1">Codes starting with <b>ELV-</b> are teacher elective groups. Assign them a descriptive <b>Class Name</b> (e.g., "Grade 10 Arabic Elective"). Standard codes are usually teachers for class view, or classes for teacher view.</p>
+                      </div>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {aiImportResult.unknownCodes.map(code => (
-                          <div key={code} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-2">
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Map code: {code}</span>
+                          <div key={code} className={`p-4 rounded-2xl border shadow-sm flex flex-col gap-2 transition-all ${code.startsWith('ELV-') ? 'bg-indigo-50/50 border-indigo-100' : 'bg-slate-50 border-slate-100'}`}>
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                    {code.startsWith('ELV-') ? 'Virtual Class Code' : 'Entity Code'}: {code}
+                                </span>
+                                {code.startsWith('ELV-') && (
+                                    <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">Elective Group</span>
+                                )}
+                              </div>
                               <input 
                                   type="text"
-                                  placeholder={isTeacherWise ? "Assign to Class..." : "Assign to Teacher..."}
+                                  placeholder={code.startsWith('ELV-') ? "Assign Elective Name..." : (isTeacherWise ? "Assign to Class Name..." : "Assign to Teacher Name...")}
                                   value={mappings[code] || ''}
                                   onChange={(e) => setMappings(prev => ({ ...prev, [code]: e.target.value }))}
                                   className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:ring-4 focus:ring-blue-50 outline-none"
@@ -509,8 +538,8 @@ export const Settings: React.FC = () => {
                   </div>
 
                   <div className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t border-slate-100">
-                      <button onClick={cancelAiImport} className="px-6 py-3 text-slate-500 font-black text-xs uppercase tracking-widest">Cancel</button>
-                      <button onClick={() => finalizeAiImport(mappings)} className="px-8 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-lg">Connect Data</button>
+                      <button onClick={cancelAiImport} className="px-6 py-3 text-slate-500 font-black text-xs uppercase tracking-widest hover:bg-slate-50 rounded-xl">Cancel</button>
+                      <button onClick={() => finalizeAiImport(mappings)} className="px-8 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-lg hover:bg-blue-700 active:scale-95 transition-all">Finalize & Connect</button>
                   </div>
               </div>
           </div>
@@ -520,6 +549,38 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto pb-10">
+      {/* Custom Confirmation Modal */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden scale-100 animate-in zoom-in-95 duration-200">
+                <div className="p-6">
+                    <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center mb-4">
+                        <Trash2 className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-lg font-black text-gray-800 mb-2">{confirmModal.title}</h3>
+                    <p className="text-sm text-gray-500 mb-6">{confirmModal.message}</p>
+                    <div className="flex gap-3">
+                        <button 
+                            onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+                            className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all text-xs uppercase tracking-widest"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={() => {
+                                confirmModal.onConfirm();
+                                setConfirmModal({ ...confirmModal, isOpen: false });
+                            }}
+                            className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold shadow-lg shadow-rose-200 hover:bg-rose-700 active:scale-95 transition-all text-xs uppercase tracking-widest"
+                        >
+                            {confirmModal.confirmText}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
       <div className="flex gap-1 mb-6 bg-white p-1.5 rounded-2xl border border-slate-200 w-fit max-w-full overflow-x-auto scrollbar-hide shadow-sm mx-auto">
         {(['general', 'timetable', 'teachers', 'classes', 'students', 'import'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${activeTab === tab ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>
@@ -561,7 +622,15 @@ export const Settings: React.FC = () => {
                       <h4 className="text-rose-700 font-bold text-sm">Danger Zone</h4>
                       <p className="text-rose-500 text-xs mt-1">Resetting will delete all data including students and schedules.</p>
                   </div>
-                  <button onClick={() => { if(window.confirm('Are you absolutely sure? This cannot be undone.')) resetData(); }} className="px-4 py-2 bg-white border border-rose-200 text-rose-600 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-rose-100 transition-colors">
+                  <button 
+                    onClick={() => triggerConfirm(
+                        "Factory Reset System?", 
+                        "This will permanently delete all teachers, classes, students, and attendance records. This cannot be undone.", 
+                        () => resetData(),
+                        "Yes, Wipe Everything"
+                    )}
+                    className="px-4 py-2 bg-white border border-rose-200 text-rose-600 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-rose-100 transition-colors"
+                  >
                       <RotateCcw className="w-3.5 h-3.5 mr-2 inline" /> Factory Reset
                   </button>
               </div>
@@ -610,7 +679,7 @@ export const Settings: React.FC = () => {
             <div className="border-2 border-dashed border-slate-200 rounded-3xl p-10 bg-slate-50/50 hover:bg-slate-100/50 transition-colors cursor-pointer group" onClick={() => fileInputRef.current?.click()}>
               <FileUp className="w-10 h-10 text-blue-500 mb-4 mx-auto group-hover:scale-110 transition-transform" />
               <h4 className="font-black text-slate-700 uppercase tracking-widest text-[10px] mb-4">Click to upload PDF or Image</h4>
-              <input type="file" ref={fileInputRef} onChange={async (e) => { const f = e.target.files?.[0]; if(f) await startAiImport(f); }} accept=".pdf,image/*" className="hidden" />
+              <input type="file" ref={fileInputRef} onChange={async (e) => { const f = e.target.files?.[0]; if(f) { await startAiImport(f); e.target.value = ''; } }} accept=".pdf,image/*" className="hidden" />
               <div className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg inline-block">Browse Files</div>
             </div>
             

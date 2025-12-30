@@ -14,8 +14,8 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({ data, onSlotClick,
   const { timeSlots, entities } = useData();
   const isTeacher = data.type === 'TEACHER';
 
-  const resolveNameFromCode = (code: string | undefined): string | undefined => {
-      if (!code) return undefined;
+  const resolveNameFromCode = (code: string | undefined): string => {
+      if (!code) return '';
       const matched = entities.find(e => e.shortCode === code || e.name === code);
       return matched ? matched.name : code;
   };
@@ -53,8 +53,8 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({ data, onSlotClick,
               const subText = isTeacher ? entry?.subject : entry?.teacherOrClass;
               const room = entry?.room;
               
-              const tooltipName = resolveNameFromCode(entry?.teacherOrClass);
-              const tooltipTitle = entry ? `${tooltipName || ''} - ${entry.subject}` : '';
+              const resolvedInfo = resolveNameFromCode(entry?.teacherOrClass);
+              const tooltipTitle = entry ? `${resolvedInfo}${entry.subject ? ' • ' + entry.subject : ''}` : '';
 
               return (
                 <div 
@@ -81,9 +81,9 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({ data, onSlotClick,
                         </div>
 
                         {/* Center Content */}
-                        <div className="my-auto flex items-center justify-center text-center">
+                        <div className="my-auto flex items-center justify-center text-center px-1">
                              <span className={`font-black text-slate-700 leading-tight transition-transform group-hover:scale-105 ${
-                                 (mainText?.length || 0) > 6 ? 'text-xs sm:text-sm' : 'text-lg sm:text-xl'
+                                 (mainText?.length || 0) > 8 ? 'text-[10px] sm:text-xs' : 'text-lg sm:text-xl'
                              }`}>
                                  {mainText}
                              </span>
