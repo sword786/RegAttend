@@ -1,16 +1,15 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useData } from '../contexts/DataContext';
-import { Clock, MapPin, User, BookOpen, Coffee, ArrowRight, Activity, Sparkles, GraduationCap, Users, School } from 'lucide-react';
+import { Clock, MapPin, User, BookOpen, Coffee, Activity, GraduationCap, Users, School, Calendar } from 'lucide-react';
 import { DayOfWeek } from '../types';
 
 export const DashboardHome: React.FC = () => {
-  const { entities, timeSlots, students } = useData();
+  const { entities, timeSlots, students, schoolName } = useData();
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Update time every minute
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -24,13 +23,18 @@ export const DashboardHome: React.FC = () => {
   }, [currentTime]);
 
   const parseTime = (timeStr: string) => {
-    const [h, m] = timeStr.trim().split(':').map(Number);
+    const parts = timeStr.trim().split(':');
+    if (parts.length !== 2) return 0;
+    const [h, m] = parts.map(Number);
     return h * 60 + m;
   };
 
   const currentPeriod = useMemo(() => {
     return timeSlots.find(slot => {
-      const [start, end] = slot.timeRange.split('-').map(t => parseTime(t));
+      const times = slot.timeRange.split('-');
+      if (times.length !== 2) return false;
+      const start = parseTime(times[0]);
+      const end = parseTime(times[1]);
       return currentMinutes >= start && currentMinutes < end;
     });
   }, [currentMinutes, timeSlots]);
@@ -48,8 +52,8 @@ export const DashboardHome: React.FC = () => {
     });
   }, [currentMinutes, timeSlots]);
 
-  const classes = useMemo(() => entities.filter(e => e.type === 'CLASS'), [entities]);
-  const teachers = useMemo(() => entities.filter(e => e.type === 'TEACHER'), [entities]);
+  const classesCount = useMemo(() => entities.filter(e => e.type === 'CLASS').length, [entities]);
+  const teachersCount = useMemo(() => entities.filter(e => e.type === 'TEACHER').length, [entities]);
 
   const getTeacherName = (code: string | undefined) => {
     if (!code) return 'Unassigned';
@@ -60,186 +64,177 @@ export const DashboardHome: React.FC = () => {
   const isSchoolDay = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu'].includes(currentDayName);
 
   return (
-    <div className="flex flex-col h-full space-y-6 overflow-y-auto pb-10 scrollbar-hide">
+    <div className="flex flex-col h-full space-y-4 sm:space-y-6 overflow-y-auto pb-10 scrollbar-hide">
       
-      {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Users className="w-6 h-6" />
-            </div>
-            <div>
-                <div className="text-2xl font-black text-slate-800">{students.length}</div>
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Students</div>
-            </div>
-        </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                <School className="w-6 h-6" />
-            </div>
-            <div>
-                <div className="text-2xl font-black text-slate-800">{classes.length}</div>
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Classes</div>
-            </div>
-        </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                <GraduationCap className="w-6 h-6" />
-            </div>
-            <div>
-                <div className="text-2xl font-black text-slate-800">{teachers.length}</div>
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Teachers</div>
-            </div>
-        </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <Activity className="w-6 h-6" />
-            </div>
-            <div>
-                <div className="text-2xl font-black text-slate-800">{currentPeriod ? 'Active' : 'Break'}</div>
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Status</div>
-            </div>
+      {/* Stats Cards - Optimized for 2-column mobile and 4-column desktop */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <StatCard 
+          icon={<Users className="w-4 h-4 sm:w-5 sm:h-5" />} 
+          label="Students" 
+          value={students.length} 
+          color="blue" 
+        />
+        <StatCard 
+          icon={<School className="w-4 h-4 sm:w-5 sm:h-5" />} 
+          label="Classes" 
+          value={classesCount} 
+          color="purple" 
+        />
+        <StatCard 
+          icon={<GraduationCap className="w-4 h-4 sm:w-5 sm:h-5" />} 
+          label="Teachers" 
+          value={teachersCount} 
+          color="indigo" 
+        />
+        <StatCard 
+          icon={<Activity className="w-4 h-4 sm:w-5 sm:h-5" />} 
+          label="Status" 
+          value={currentPeriod ? 'Active' : 'Break'} 
+          color="emerald" 
+        />
+      </div>
+
+      {/* Hero Clock Section - Balanced Typography */}
+      <div className="bg-slate-900 p-6 sm:p-10 rounded-[2rem] shadow-xl text-white relative overflow-hidden flex flex-col items-center justify-center">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2 pointer-events-none"></div>
+        
+        <div className="text-center z-10 w-full">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-blue-300 mb-4 border border-white/5">
+            <Calendar className="w-3 h-3" />
+            {currentTime.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
+          </div>
+          
+          <h2 className="text-[2.75rem] sm:text-7xl font-black tracking-tighter mb-1 leading-none">
+            {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </h2>
+          <p className="text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-[0.2em] opacity-80 mb-8 sm:mb-10">{schoolName}</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 w-full max-w-2xl mx-auto">
+              <div className={`p-4 rounded-2xl border flex items-center justify-between transition-colors ${currentPeriod ? 'bg-emerald-500/10 border-emerald-500/20 shadow-lg shadow-emerald-500/5' : 'bg-white/5 border-white/10'}`}>
+                <div className="text-left">
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Current Session</span>
+                  <div className="text-base sm:text-lg font-black">{currentPeriod ? `Period ${currentPeriod.period}` : 'No Active Class'}</div>
+                </div>
+                {currentPeriod && <span className="text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-lg border border-emerald-400/20">{currentPeriod.timeRange}</span>}
+              </div>
+              
+              {nextPeriod && isSchoolDay && (
+                <div className="p-4 rounded-2xl border bg-white/5 border-white/10 flex items-center justify-between">
+                  <div className="text-left">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Up Next</span>
+                    <div className="text-base sm:text-lg font-black">Period {nextPeriod.period}</div>
+                  </div>
+                  <span className="text-[10px] font-bold text-blue-400 bg-blue-400/10 px-2 py-1 rounded-lg border border-blue-400/20">{nextPeriod.timeRange}</span>
+                </div>
+              )}
+          </div>
         </div>
       </div>
 
-      {/* Live Status Hero */}
-      <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 sm:p-8 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8">
-        {/* Decorative elements */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2 pointer-events-none"></div>
-
-        <div className="relative z-10 text-center md:text-left">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/10 text-xs font-bold uppercase tracking-widest text-blue-200 mb-4">
-                <Clock className="w-3.5 h-3.5" />
-                {currentTime.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
-            </div>
-            <h1 className="text-5xl sm:text-6xl font-black tracking-tight mb-2">
-                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </h1>
-            <p className="text-slate-400 font-medium text-lg">Mupini Combined School</p>
-        </div>
-
-        <div className="relative z-10 flex gap-4 w-full md:w-auto">
-            {/* Current Period Card */}
-            <div className={`flex-1 md:w-48 p-5 rounded-2xl backdrop-blur-md border border-white/10 transition-all ${
-                currentPeriod ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-white/5'
-            }`}>
-                 <div className="flex items-center justify-between mb-3">
-                    <span className={`text-[10px] font-black uppercase tracking-widest ${currentPeriod ? 'text-emerald-300' : 'text-slate-400'}`}>
-                        Now
-                    </span>
-                    {currentPeriod && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>}
-                 </div>
-                 {currentPeriod ? (
-                    <>
-                        <div className="text-2xl font-bold text-white mb-1">Period {currentPeriod.period}</div>
-                        <div className="text-xs font-bold text-emerald-200">{currentPeriod.timeRange}</div>
-                    </>
-                 ) : (
-                    <div className="text-xl font-bold text-slate-300">
-                        {isSchoolDay ? 'Break Time' : 'Weekend'}
-                    </div>
-                 )}
-            </div>
-
-             {/* Next Period Card */}
-             {nextPeriod && isSchoolDay && (
-                <div className="flex-1 md:w-48 p-5 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10">
-                     <div className="flex items-center justify-between mb-3">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-blue-200">Up Next</span>
-                        <ArrowRight className="w-4 h-4 text-blue-300/50" />
-                     </div>
-                     <div className="text-2xl font-bold text-white mb-1">Period {nextPeriod.period}</div>
-                     <div className="text-xs font-bold text-blue-200 opacity-70">{nextPeriod.timeRange}</div>
-                </div>
-             )}
-        </div>
+      {/* Live Sessions Header */}
+      <div className="flex items-center gap-3 px-1 pt-2">
+          <div className="p-2 bg-indigo-100 text-indigo-600 rounded-xl shadow-sm">
+              <Activity className="w-4 h-4" />
+          </div>
+          <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Live Sessions</h3>
       </div>
 
-      {/* Live Grid */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-100 text-indigo-600 rounded-xl">
-                    <Sparkles className="w-5 h-5" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-800">
-                    Live Sessions
-                </h3>
-            </div>
-            {currentPeriod && (
-                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
-                    {classes.length} Classes Registered
-                </span>
-            )}
-        </div>
-
+      {/* Sessions Content Grid */}
+      <div className="px-1">
         {currentPeriod && isSchoolDay ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                {classes.map(cls => {
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {entities.filter(e => e.type === 'CLASS').map(cls => {
                     const daySchedule = cls.schedule[currentDayName as DayOfWeek];
                     const entry = daySchedule ? daySchedule[currentPeriod.period] : null;
 
-                    if (!entry) return null; // Only show active classes to reduce clutter
+                    if (!entry) return null;
 
                     return (
-                        <div key={cls.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group overflow-hidden">
-                            <div className="p-5">
-                                <div className="flex justify-between items-start mb-4">
-                                    <h4 className="text-lg font-black text-slate-800">{cls.name}</h4>
-                                    {entry.room && (
-                                        <span className="text-[10px] font-bold bg-slate-50 text-slate-600 px-2.5 py-1 rounded-full flex items-center border border-slate-100">
-                                            <MapPin className="w-3 h-3 mr-1" /> {entry.room}
-                                        </span>
-                                    )}
+                        <div key={cls.id} className="bg-white rounded-[1.5rem] border border-slate-200 shadow-sm p-5 hover:shadow-md transition-all group">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <h4 className="text-lg font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors">{cls.name}</h4>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{cls.shortCode}</span>
+                                </div>
+                                {entry.room && (
+                                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 border border-slate-100 rounded-lg">
+                                        <MapPin className="w-3 h-3 text-slate-400" />
+                                        <span className="text-[10px] font-black text-slate-600 uppercase tracking-tight">{entry.room}</span>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-4 p-3 bg-blue-50/50 rounded-xl border border-blue-100/50">
+                                    <div className="p-2 bg-white rounded-lg text-blue-600 shadow-sm border border-blue-100">
+                                        <BookOpen className="w-4 h-4" />
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[9px] font-bold text-blue-400 uppercase tracking-widest leading-none mb-1">Subject</span>
+                                        <span className="text-sm font-black text-slate-700">{entry.subject}</span>
+                                    </div>
                                 </div>
 
-                                <div className="space-y-4">
-                                    <div className="flex items-start gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-black text-sm shrink-0">
-                                            {entry.subject.slice(0, 3)}
-                                        </div>
-                                        <div>
-                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Subject</div>
-                                            <div className="font-bold text-slate-800 leading-tight text-sm truncate w-32" title={entry.subject}>{entry.subject}</div>
-                                        </div>
+                                <div className="flex items-center gap-4 p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                                    <div className="p-2 bg-white rounded-lg text-slate-600 shadow-sm border border-slate-100">
+                                        <User className="w-4 h-4" />
                                     </div>
-                                    <div className="flex items-start gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-slate-50 text-slate-500 flex items-center justify-center shrink-0">
-                                            <User className="w-5 h-5" />
-                                            </div>
-                                            <div>
-                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Teacher</div>
-                                            <div className="font-bold text-slate-700 text-sm truncate w-32" title={getTeacherName(entry.teacherOrClass)}>
-                                                {getTeacherName(entry.teacherOrClass)}
-                                            </div>
-                                            </div>
+                                    <div className="flex flex-col min-w-0">
+                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Instructor</span>
+                                        <span className="text-sm font-black text-slate-700 truncate">
+                                            {getTeacherName(entry.teacherOrClass)}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     );
                 })}
-                {/* Fallback if no classes have a session this specific period despite it being a school period */}
-                {classes.every(c => !c.schedule[currentDayName as DayOfWeek]?.[currentPeriod.period]) && (
-                     <div className="col-span-full flex flex-col items-center justify-center py-12 text-slate-400">
-                        <Coffee className="w-12 h-12 mb-4 opacity-50" />
-                        <p className="font-bold text-sm">No classes scheduled for this period.</p>
-                     </div>
-                )}
             </div>
         ) : (
-            <div className="bg-white rounded-3xl border border-dashed border-slate-200 p-16 flex flex-col items-center justify-center text-center">
-                <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6 shadow-sm">
-                    <BookOpen className="w-10 h-10 text-slate-300" />
+            <div className="bg-white rounded-[2.5rem] border border-slate-200 p-12 sm:p-20 text-center relative overflow-hidden group shadow-sm">
+                <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:32px_32px] opacity-30 group-hover:opacity-40 transition-opacity"></div>
+                <div className="relative z-10">
+                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner border border-slate-100">
+                        <Coffee className="w-10 h-10 text-slate-300 group-hover:rotate-12 transition-transform duration-500" />
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-800">No Active Classes</h3>
+                    <p className="text-sm text-slate-400 max-w-xs mx-auto mt-3 font-medium leading-relaxed">
+                        The school is currently on break or out of session. Relax or check full schedules in the tabs.
+                    </p>
                 </div>
-                <h4 className="text-2xl font-bold text-slate-800 mb-2">No Active Classes</h4>
-                <p className="text-slate-500 text-base max-w-md">
-                    School is currently out of session or in between periods. View the full schedule in the <b>Classes</b> tab.
-                </p>
             </div>
         )}
       </div>
     </div>
   );
+};
+
+interface StatCardProps {
+    icon: React.ReactNode;
+    label: string;
+    value: number | string;
+    color: string;
+}
+
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, color }) => {
+    const colorClasses: Record<string, string> = {
+        blue: 'bg-blue-50 text-blue-600 border-blue-100 shadow-blue-500/5',
+        purple: 'bg-purple-50 text-purple-600 border-purple-100 shadow-purple-500/5',
+        indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100 shadow-indigo-500/5',
+        emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100 shadow-emerald-500/5'
+    };
+
+    return (
+        <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3 transition-all hover:translate-y-[-2px] hover:shadow-md cursor-default">
+            <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 border-2 ${colorClasses[color]}`}>
+                {icon}
+            </div>
+            <div className="min-w-0">
+                <div className="text-lg sm:text-2xl font-black text-slate-800 leading-none truncate">{value}</div>
+                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1.5 truncate">{label}</div>
+            </div>
+        </div>
+    );
 };

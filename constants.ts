@@ -1,3 +1,4 @@
+
 import { DayOfWeek, EntityProfile, TimeSlot, Student } from './types';
 
 export const DEFAULT_TIME_SLOTS: TimeSlot[] = [
@@ -17,19 +18,4 @@ export const DAYS: DayOfWeek[] = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
 // Empty defaults as requested for clean start
 export const DEFAULT_STUDENTS: Student[] = [];
 
-export const DEFAULT_DATA: EntityProfile[] = [
-  {
-    id: 't-new-1',
-    name: 'New Teacher',
-    shortCode: 'NT',
-    type: 'TEACHER',
-    schedule: {} as any
-  },
-  {
-    id: 'c-new-1',
-    name: 'New Class',
-    shortCode: 'NC',
-    type: 'CLASS',
-    schedule: {} as any
-  }
-];
+export const DEFAULT_DATA: EntityProfile[] = [];
