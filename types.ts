@@ -63,7 +63,7 @@ export interface AiImportResult {
   rawTextResponse?: string;
 }
 
-// NEW SYNC TYPES
+// PORTABLE SYNC TYPES
 export interface PairedDevice {
   deviceId: string;
   deviceName: string;
@@ -78,4 +78,5 @@ export interface SyncMetadata {
   lastSync: string | null;
   schoolId: string | null;
   deviceId: string | null;
+  masterSourceId?: string; // Tracks which master this teacher belongs to
 }
