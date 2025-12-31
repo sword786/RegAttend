@@ -5,11 +5,12 @@ import {
   Trash2, Plus, FileText, Sparkles, Loader2, FileUp, Check, X, Upload, 
   AlertCircle, ArrowRight, Pencil, Clock, Key, ExternalLink, Save, 
   Download, RotateCcw, UserPlus, Layers, Users, GraduationCap, 
-  FileCheck, ShieldAlert, ArrowLeft, Settings as SettingsIcon, ChevronRight
+  FileCheck, ShieldAlert, ArrowLeft, Settings as SettingsIcon, ChevronRight,
+  Cloud, CloudOff, RefreshCw, Smartphone, Copy, Monitor, ShieldCheck, UserMinus, Zap
 } from 'lucide-react';
-import { EntityProfile, TimeSlot } from '../types';
+import { EntityProfile, TimeSlot, PairedDevice } from '../types';
 
-type SettingsTab = 'menu' | 'general' | 'timetable' | 'teachers' | 'classes' | 'students' | 'import';
+type SettingsTab = 'menu' | 'general' | 'timetable' | 'teachers' | 'classes' | 'students' | 'import' | 'sync';
 
 export const Settings: React.FC = () => {
   const { 
@@ -19,12 +20,19 @@ export const Settings: React.FC = () => {
     students, addStudent, deleteStudent,
     timeSlots, updateTimeSlots,
     resetData,
-    aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport, finalizeAiImport
+    aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport, finalizeAiImport,
+    syncInfo, pairedDevices, generatePairCode, joinSchool, disconnectSync, removeDevice
   } = useData();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('menu');
   const [hasCustomKey, setHasCustomKey] = useState(false);
   
+  // Pairing Logic States
+  const [pairingCodeInput, setPairingCodeInput] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [showPairCode, setShowPairCode] = useState(false);
+
   // Staging Files
   const [teacherFile, setTeacherFile] = useState<File | null>(null);
   const [classFile, setClassFile] = useState<File | null>(null);
@@ -73,15 +81,7 @@ export const Settings: React.FC = () => {
   const [editName, setEditName] = useState('');
   const [editCode, setEditCode] = useState('');
   
-  // TimeSlot State
-  const [localTimeSlots, setLocalTimeSlots] = useState<TimeSlot[]>([]);
-  
   const classes = useMemo(() => entities.filter(e => e.type === 'CLASS'), [entities]);
-  const teachers = useMemo(() => entities.filter(e => e.type === 'TEACHER'), [entities]);
-
-  useEffect(() => {
-    setLocalTimeSlots(timeSlots);
-  }, [timeSlots]);
 
   useEffect(() => {
     const checkKey = async () => {
@@ -106,6 +106,28 @@ export const Settings: React.FC = () => {
     } catch (e) {
       console.error("Key selection failed", e);
     }
+  };
+
+  const handleJoinSchool = async () => {
+    if (!pairingCodeInput.trim() || pairingCodeInput.length !== 6) {
+        setJoinError("Please enter a valid 6-digit code.");
+        return;
+    }
+    setIsJoining(true);
+    setJoinError(null);
+    const success = await joinSchool(pairingCodeInput);
+    setIsJoining(false);
+    if (success) {
+        setPairingCodeInput('');
+        triggerConfirm("Successfully Joined!", "You are now live-synced with the master school timetable.", () => {}, "Got it");
+    } else {
+        setJoinError("Pair code not found or invalid.");
+    }
+  };
+
+  const handleGenerateCode = () => {
+    const code = generatePairCode();
+    setShowPairCode(true);
   };
 
   const handleStartProcessing = () => {
@@ -343,11 +365,12 @@ export const Settings: React.FC = () => {
           color="blue"
         />
         <MenuCard 
-          icon={<Clock className="w-7 h-7" />} 
-          title="Period Structure" 
-          description="Define lesson timings and daily period counts"
-          onClick={() => setActiveTab('timetable')}
+          icon={<Cloud className="w-7 h-7" />} 
+          title="Sync Center" 
+          description="Real-time school pairing and live data sharing"
+          onClick={() => setActiveTab('sync')}
           color="indigo"
+          highlight={!syncInfo.isPaired}
         />
         <MenuCard 
           icon={<Users className="w-7 h-7" />} 
@@ -376,7 +399,6 @@ export const Settings: React.FC = () => {
           description="Auto-digitize PDF and image timetables via Gemini"
           onClick={() => setActiveTab('import')}
           color="amber"
-          highlight
         />
       </div>
     </div>
@@ -456,6 +478,199 @@ export const Settings: React.FC = () => {
             </>
           )}
 
+          {activeTab === 'sync' && (
+            <>
+              <SectionHeader title="Mupini Cloud Sync" description="School-wide data pairing and sharing" />
+              <div className="space-y-8">
+                  {/* Status Card */}
+                  <div className={`p-10 rounded-[3rem] border-2 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 transition-all ${syncInfo.isPaired ? 'bg-indigo-900 border-indigo-500 text-white shadow-2xl shadow-indigo-200' : 'bg-white border-slate-100'}`}>
+                      {syncInfo.isPaired && <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/20 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2"></div>}
+                      
+                      <div className="flex items-center gap-8 relative z-10 text-center md:text-left flex-col md:flex-row">
+                          <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center shadow-2xl transition-all ${syncInfo.isPaired ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                              {syncInfo.isPaired ? <Zap className="w-10 h-10 fill-white animate-pulse" /> : <CloudOff className="w-10 h-10" />}
+                          </div>
+                          <div>
+                              <h3 className={`text-2xl font-black uppercase tracking-tighter leading-none mb-3 ${syncInfo.isPaired ? 'text-white' : 'text-slate-800'}`}>
+                                  {syncInfo.isPaired ? `Live Syncing: ${schoolName}` : 'No Active Pairing'}
+                              </h3>
+                              <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${syncInfo.isPaired ? 'text-indigo-300' : 'text-slate-400'}`}>
+                                  {syncInfo.isPaired 
+                                    ? `Role: ${syncInfo.role} • Active: Always ON • ID: ${syncInfo.pairCode}` 
+                                    : 'Your data is currently local-only and not shared.'}
+                              </p>
+                          </div>
+                      </div>
+
+                      <div className="flex gap-4 relative z-10 w-full md:w-auto">
+                          {syncInfo.isPaired ? (
+                              <div className="flex items-center gap-4 bg-white/10 px-6 py-4 rounded-[2rem] border border-white/10">
+                                  <div className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-ping"></div>
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-white">Streaming Live</span>
+                              </div>
+                          ) : (
+                              <div className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl border border-emerald-100">
+                                  <ShieldAlert className="w-4 h-4" />
+                                  <span className="text-[10px] font-black uppercase tracking-widest">Safe & Private</span>
+                              </div>
+                          )}
+                      </div>
+                  </div>
+
+                  {syncInfo.isPaired && (
+                    <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+                        <div className="flex items-center justify-between border-b border-slate-50 pb-6">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+                                    <Monitor className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest leading-none">Paired Devices Roster</h4>
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-2">Active devices connected to this school</p>
+                                </div>
+                            </div>
+                            <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                                {pairedDevices.length} Active Devices
+                            </div>
+                        </div>
+
+                        <div className="divide-y divide-slate-50">
+                            {pairedDevices.map((device) => (
+                                <div key={device.deviceId} className="py-5 flex items-center justify-between group">
+                                    <div className="flex items-center gap-6">
+                                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center border-2 ${device.role === 'ADMIN' ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                                            {device.role === 'ADMIN' ? <ShieldCheck className="w-6 h-6" /> : <Smartphone className="w-6 h-6" />}
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-black text-slate-800 flex items-center gap-2">
+                                                {device.deviceName}
+                                                {device.deviceId === syncInfo.deviceId && (
+                                                    <span className="text-[8px] font-black bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded uppercase tracking-widest">Current Device</span>
+                                                )}
+                                            </span>
+                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                                                {device.role === 'ADMIN' ? 'Full Authority' : 'Restricted Access'} • Heartbeat: {new Date(device.lastActive).toLocaleTimeString()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    {syncInfo.role === 'ADMIN' && device.role !== 'ADMIN' && (
+                                        <button 
+                                            onClick={() => triggerConfirm("Revoke Device Access?", `Remove ${device.deviceName} from this school? Access will be cut instantly.`, () => removeDevice(device.deviceId))}
+                                            className="px-4 py-2 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all flex items-center gap-2"
+                                        >
+                                            <UserMinus className="w-4 h-4" /> Revoke
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        {syncInfo.role === 'ADMIN' && (
+                            <div className="pt-8 border-t border-slate-50 flex justify-end">
+                                <button onClick={() => triggerConfirm("End School Sync?", "This will disconnect EVERYONE. Standalone data will be preserved on all devices.", disconnectSync)} className="px-8 py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-rose-200 transition-all flex items-center gap-2">
+                                    <CloudOff className="w-4 h-4" /> Disable All Pairing
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                  )}
+
+                  {!syncInfo.isPaired && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-6 duration-500">
+                        {/* Admin Path */}
+                        <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group">
+                            <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-8 text-blue-600 group-hover:scale-110 transition-transform shadow-inner">
+                                <Smartphone className="w-8 h-8" />
+                            </div>
+                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Master School Admin</h4>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">
+                                Generate a school code to broadcast your master timetable. Every change you make will sync instantly to paired staff.
+                            </p>
+                            <button onClick={handleGenerateCode} className="w-full py-5 bg-slate-900 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-blue-600 shadow-xl shadow-slate-200 transition-all">
+                                Generate School Code
+                            </button>
+                        </div>
+
+                        {/* Teacher Path */}
+                        <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group">
+                            <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform shadow-inner">
+                                <Users className="w-8 h-8" />
+                            </div>
+                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Pair as Staff Member</h4>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-6">
+                                Join your school's live network. Once joined, your timetable stays in-sync with administrative updates in real-time.
+                            </p>
+                            <div className="space-y-4">
+                                <input 
+                                    maxLength={6}
+                                    value={pairingCodeInput}
+                                    onChange={(e) => {
+                                        setPairingCodeInput(e.target.value.replace(/\D/g, ''));
+                                        setJoinError(null);
+                                    }}
+                                    placeholder="Enter 6-Digit Code"
+                                    className={`w-full p-5 bg-slate-50 border rounded-2xl text-center text-2xl font-black tracking-[0.5em] focus:ring-4 focus:ring-blue-100 outline-none transition-all ${joinError ? 'border-rose-400 text-rose-600' : 'border-slate-200 text-slate-700'}`}
+                                />
+                                {joinError && <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest text-center">{joinError}</p>}
+                                <button 
+                                    disabled={isJoining}
+                                    onClick={handleJoinSchool} 
+                                    className="w-full py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all disabled:opacity-30"
+                                >
+                                    {isJoining ? 'Verifying Code...' : 'Join School Live'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                  )}
+
+                  {showPairCode && syncInfo.role === 'ADMIN' && (
+                    <div className="bg-emerald-600 p-12 rounded-[4rem] text-white text-center shadow-2xl shadow-emerald-200 animate-in zoom-in duration-500">
+                        <div className="w-20 h-20 bg-white/20 rounded-[2rem] flex items-center justify-center mx-auto mb-8">
+                            <Key className="w-10 h-10 text-white" />
+                        </div>
+                        <h4 className="text-4xl font-black tracking-tighter uppercase mb-2">School Code Active</h4>
+                        <p className="text-emerald-100 text-xs font-black uppercase tracking-[0.2em] mb-10">Give this code to all teachers at your school</p>
+                        
+                        <div className="bg-white/10 p-10 rounded-[2.5rem] border border-white/20 relative group overflow-hidden">
+                            <span className="text-7xl font-black tracking-[0.5em] text-white tabular-nums drop-shadow-xl pl-[0.5em]">
+                                {syncInfo.pairCode}
+                            </span>
+                            <button 
+                                onClick={() => {
+                                    navigator.clipboard.writeText(syncInfo.pairCode || '');
+                                    alert("Code copied to clipboard!");
+                                }}
+                                className="absolute top-4 right-4 p-3 bg-white text-emerald-600 rounded-xl shadow-lg hover:scale-110 active:scale-90 transition-all"
+                            >
+                                <Copy className="w-5 h-5" />
+                            </button>
+                        </div>
+                        
+                        <div className="mt-10 flex flex-col items-center gap-4">
+                            <p className="text-[10px] text-emerald-200 font-black uppercase tracking-[0.3em] max-w-sm">
+                                Staff members using this code will receive live timetable updates automatically.
+                            </p>
+                            <button onClick={() => setShowPairCode(false)} className="px-8 py-3 bg-white text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-50 transition-all">Done</button>
+                        </div>
+                    </div>
+                  )}
+
+                  <div className="p-8 bg-amber-50 rounded-[2.5rem] border border-amber-200 flex items-start gap-6">
+                      <div className="p-3 bg-white rounded-xl text-amber-600 shadow-sm border border-amber-100 shrink-0">
+                          <AlertCircle className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-2">
+                          <h5 className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Always-On Live Synchronization</h5>
+                          <p className="text-xs font-bold text-amber-600/80 leading-relaxed">
+                              Sync is fully automated. Teachers cannot manually disconnect to ensure schedule integrity. Only the <strong>School Admin</strong> can manage the device list or revoke access. If access is revoked or pairing is disabled, the local app will automatically revert to standalone mode.
+                          </p>
+                      </div>
+                  </div>
+              </div>
+            </>
+          )}
+
           {activeTab === 'timetable' && (
             <>
               <SectionHeader title="Period Structure" description="Time-mapping for daily academic sessions" />
@@ -473,14 +688,6 @@ export const Settings: React.FC = () => {
                               </div>
                           </div>
                       ))}
-                  </div>
-                  <div className="mt-12 p-8 bg-blue-50/30 border border-blue-100 rounded-[2.5rem] flex items-center gap-6">
-                    <div className="p-4 bg-white rounded-2xl text-blue-600 shadow-sm">
-                      <AlertCircle className="w-6 h-6" />
-                    </div>
-                    <p className="text-[11px] font-black text-blue-700 uppercase tracking-widest leading-relaxed">
-                      Timings are currently read-only. Contact system admin if adjustments to the 9-period bell structure are required.
-                    </p>
                   </div>
               </div>
             </>
@@ -508,7 +715,6 @@ export const Settings: React.FC = () => {
                       <div className="space-y-6">
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">Bulk Roster Entry (CSV)</label>
-                            <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">Format: Name, RollNumber (one per line)</span>
                           </div>
                           <textarea 
                             value={bulkStudentInput} 
@@ -530,25 +736,8 @@ export const Settings: React.FC = () => {
                                   <ChevronRight className="absolute right-4 top-4 w-4 h-4 text-slate-400 rotate-90 pointer-events-none" />
                                 </div>
                               </div>
-
-                              <div className="space-y-6 pt-4 border-t border-slate-200">
-                                <div className="space-y-2">
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Full Student Name</label>
-                                  <input value={newStudentName} onChange={e => setNewStudentName(e.target.value)} placeholder="e.g. Maria Kalenga" className="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-black text-slate-700 outline-none focus:ring-4 focus:ring-blue-100" />
-                                </div>
-                                <div className="space-y-2">
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Admission / Roll Number</label>
-                                  <input value={newStudentRoll} onChange={e => setNewStudentRoll(e.target.value)} placeholder="e.g. M-2025-001" className="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-black text-slate-700 outline-none focus:ring-4 focus:ring-blue-100" />
-                                </div>
-                                <button onClick={handleAddSingleStudent} className="w-full py-5 bg-blue-600 text-white rounded-2xl text-xs font-black uppercase tracking-[0.3em] shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95">Enroll Student</button>
-                              </div>
+                              <button onClick={handleAddSingleStudent} className="w-full py-5 bg-blue-600 text-white rounded-2xl text-xs font-black uppercase tracking-[0.3em] shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95">Enroll Student</button>
                           </div>
-
-                          {importStatus && (
-                            <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-[1.5rem] flex items-center gap-4 text-emerald-700 font-black text-xs uppercase tracking-widest animate-in slide-in-from-right-4">
-                              <Check className="w-5 h-5" /> {importStatus}
-                            </div>
-                          )}
                       </div>
                   </div>
               </div>
@@ -562,8 +751,7 @@ export const Settings: React.FC = () => {
                 {aiImportStatus === 'PROCESSING' && (
                     <div className="absolute inset-0 bg-white/95 backdrop-blur-xl z-50 flex flex-col items-center justify-center animate-in fade-in duration-500">
                         <Loader2 className="w-20 h-20 text-blue-600 animate-spin mb-8" />
-                        <h3 className="text-2xl font-black text-slate-800 uppercase tracking-[0.2em]">Analyzing Document Architecture...</h3>
-                        <p className="text-slate-400 text-xs mt-4 font-bold uppercase tracking-[0.25em] max-w-sm">Cross-referencing teacher slots with class masters via Gemini Flash 3.0</p>
+                        <h3 className="text-2xl font-black text-slate-800 uppercase tracking-[0.2em]">Analyzing Documents...</h3>
                     </div>
                 )}
                 
@@ -571,70 +759,27 @@ export const Settings: React.FC = () => {
                     <div className="p-6 bg-blue-100 rounded-[2.5rem] text-blue-600 mb-8 shadow-2xl shadow-blue-50 scale-110">
                         <Sparkles className="w-12 h-12" />
                     </div>
-                    <h3 className="text-4xl font-black text-slate-800 tracking-tighter uppercase mb-4">Master Sync Import</h3>
-                    <p className="text-slate-400 text-xs font-black max-w-md uppercase tracking-[0.2em] leading-relaxed">Upload both PDF timetables to allow the AI to build a unified system architecture for your school.</p>
+                    <h3 className="text-4xl font-black text-slate-800 tracking-tighter uppercase mb-4">Master AI Digitizer</h3>
                 </div>
-
-                {aiImportErrorMessage && (
-                    <div className="bg-rose-50 border border-rose-200 p-8 rounded-[2.5rem] flex flex-col items-center gap-6 mb-16 text-rose-600 font-black text-[11px] uppercase tracking-widest shadow-lg animate-in shake duration-500">
-                        <div className="flex items-center gap-3">
-                            <ShieldAlert className="w-6 h-6" />
-                            <span>System Error: {aiImportErrorMessage}</span>
-                        </div>
-                        {aiImportErrorMessage.includes('RESOURCE_EXHAUSTED') && (
-                            <div className="flex flex-col items-center gap-4 border-t border-rose-100 pt-6 w-full">
-                                <p className="text-slate-500 font-bold lowercase normal-case tracking-normal max-w-sm">Quota limit reached. Link a personal GCP billing account for unrestricted processing.</p>
-                                <button onClick={handleSelectKey} className="flex items-center gap-3 px-8 py-4 bg-rose-600 text-white rounded-2xl shadow-xl shadow-rose-200 hover:bg-rose-700 transition-all"><Key className="w-4 h-4" /> Link Personal Key</button>
-                            </div>
-                        )}
-                    </div>
-                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    <div 
-                        className={`border-4 border-dashed rounded-[3.5rem] p-12 transition-all cursor-pointer group flex flex-col items-center ${teacherFile ? 'bg-emerald-50 border-emerald-200 shadow-2xl shadow-emerald-50' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-blue-400 hover:scale-[1.02]'}`}
-                        onClick={() => teacherFileInputRef.current?.click()}
-                    >
-                        {teacherFile ? (
-                            <div className="w-20 h-20 bg-white rounded-3xl shadow-lg border border-emerald-100 flex items-center justify-center mb-6 animate-in zoom-in"><FileCheck className="w-10 h-10 text-emerald-500" /></div>
-                        ) : (
-                            <div className="w-20 h-20 bg-white rounded-3xl shadow-lg border border-slate-100 flex items-center justify-center mb-6 group-hover:rotate-6 transition-transform"><Users className="w-10 h-10 text-indigo-400" /></div>
-                        )}
+                    <div className={`border-4 border-dashed rounded-[3.5rem] p-12 transition-all cursor-pointer group flex flex-col items-center ${teacherFile ? 'bg-emerald-50 border-emerald-200 shadow-2xl shadow-emerald-50' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-blue-400'}`} onClick={() => teacherFileInputRef.current?.click()}>
+                        {teacherFile ? <FileCheck className="w-10 h-10 text-emerald-500 mb-6" /> : <Users className="w-10 h-10 text-indigo-400 mb-6" />}
                         <h4 className="font-black text-slate-800 uppercase tracking-widest text-base mb-2">Teacher Timetable</h4>
-                        <p className="text-[10px] text-slate-400 font-black uppercase mb-8 text-center leading-loose">{teacherFile ? teacherFile.name : 'Individual staff schedules'}</p>
                         <input type="file" ref={teacherFileInputRef} onChange={e => setTeacherFile(e.target.files?.[0] || null)} className="hidden" accept=".pdf,image/*" />
-                        <div className={`px-8 py-4 rounded-[1.5rem] text-[11px] font-black uppercase tracking-[0.2em] shadow-xl transition-all ${teacherFile ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white group-hover:bg-blue-600'}`}>
-                            {teacherFile ? 'Change Document' : 'Select Source'}
-                        </div>
                     </div>
 
-                    <div 
-                        className={`border-4 border-dashed rounded-[3.5rem] p-12 transition-all cursor-pointer group flex flex-col items-center ${classFile ? 'bg-emerald-50 border-emerald-200 shadow-2xl shadow-emerald-50' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-blue-400 hover:scale-[1.02]'}`}
-                        onClick={() => classFileInputRef.current?.click()}
-                    >
-                        {classFile ? (
-                            <div className="w-20 h-20 bg-white rounded-3xl shadow-lg border border-emerald-100 flex items-center justify-center mb-6 animate-in zoom-in"><FileCheck className="w-10 h-10 text-emerald-500" /></div>
-                        ) : (
-                            <div className="w-20 h-20 bg-white rounded-3xl shadow-lg border border-slate-100 flex items-center justify-center mb-6 group-hover:rotate-[-6deg] transition-transform"><GraduationCap className="w-10 h-10 text-blue-400" /></div>
-                        )}
+                    <div className={`border-4 border-dashed rounded-[3.5rem] p-12 transition-all cursor-pointer group flex flex-col items-center ${classFile ? 'bg-emerald-50 border-emerald-200 shadow-2xl shadow-emerald-50' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-blue-400'}`} onClick={() => classFileInputRef.current?.click()}>
+                        {classFile ? <FileCheck className="w-10 h-10 text-emerald-500 mb-6" /> : <GraduationCap className="w-10 h-10 text-blue-400 mb-6" />}
                         <h4 className="font-black text-slate-800 uppercase tracking-widest text-base mb-2">Class Master</h4>
-                        <p className="text-[10px] text-slate-400 font-black uppercase mb-8 text-center leading-loose">{classFile ? classFile.name : 'Master grid for all grades'}</p>
                         <input type="file" ref={classFileInputRef} onChange={e => setClassFile(e.target.files?.[0] || null)} className="hidden" accept=".pdf,image/*" />
-                        <div className={`px-8 py-4 rounded-[1.5rem] text-[11px] font-black uppercase tracking-[0.2em] shadow-xl transition-all ${classFile ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white group-hover:bg-blue-600'}`}>
-                            {classFile ? 'Change Document' : 'Select Source'}
-                        </div>
                     </div>
                 </div>
 
-                <div className="mt-20 space-y-6">
-                    <button 
-                        disabled={!teacherFile || !classFile || aiImportStatus === 'PROCESSING'}
-                        onClick={handleStartProcessing}
-                        className="w-full max-w-md py-6 bg-blue-600 text-white rounded-[2rem] text-sm font-black uppercase tracking-[0.3em] shadow-2xl shadow-blue-200 hover:bg-blue-700 hover:scale-[1.05] active:scale-95 disabled:opacity-30 disabled:grayscale transition-all"
-                    >
-                        {aiImportStatus === 'PROCESSING' ? 'Analyzing Data...' : 'Begin Intelligent Sync'}
+                <div className="mt-20">
+                    <button disabled={!teacherFile || !classFile} onClick={handleStartProcessing} className="w-full max-w-md py-6 bg-blue-600 text-white rounded-[2rem] text-sm font-black uppercase tracking-[0.3em] shadow-2xl disabled:opacity-30 transition-all">
+                        Begin AI Extractions
                     </button>
-                    <p className="text-[10px] text-slate-300 font-black uppercase tracking-[0.3em]">Processing requires a Personal API Key for large datasets</p>
                 </div>
               </div>
             </>
@@ -676,7 +821,7 @@ const MenuCard: React.FC<MenuCardProps> = ({ icon, title, description, onClick, 
   return (
     <button 
       onClick={onClick}
-      className={`group bg-white p-8 rounded-[2.5rem] border border-slate-200 text-left transition-all hover:shadow-[0_30px_60px_-15px_rgba(15,23,42,0.12)] hover:translate-y-[-8px] active:scale-[0.97] flex flex-col h-full ${bgBorder[color]} ${highlight ? 'ring-2 ring-amber-400 ring-offset-4 ring-offset-slate-50' : ''}`}
+      className={`group bg-white p-8 rounded-[2.5rem] border border-slate-200 text-left transition-all hover:shadow-[0_30px_60px_-15px_rgba(15,23,42,0.12)] hover:translate-y-[-8px] active:scale-[0.97] flex flex-col h-full ${bgBorder[color]} ${highlight ? 'ring-2 ring-blue-400 ring-offset-4 ring-offset-slate-50' : ''}`}
     >
       <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-8 transition-all duration-300 shadow-sm ${colorClasses[color]}`}>
         {icon}
@@ -690,12 +835,6 @@ const MenuCard: React.FC<MenuCardProps> = ({ icon, title, description, onClick, 
           {description}
         </p>
       </div>
-      {highlight && (
-        <div className="mt-6 inline-flex items-center gap-2 text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100">
-           <Sparkles className="w-3 h-3" />
-           Recommended Action
-        </div>
-      )}
     </button>
   );
 };

@@ -7,24 +7,21 @@ export interface TimeSlot {
 }
 
 export interface TimetableEntry {
-  subject: string; // e.g., "ENG", "MATH", "AH", "ELV"
-  room?: string; // Venue / Room number
-  teacherOrClass?: string; // Primary code (e.g., "JD" or "10A")
-  
-  // Advanced session metadata
+  subject: string;
+  room?: string;
+  teacherOrClass?: string;
   type?: 'split' | 'combined' | 'normal';
-  teachers?: string[]; // For "split" logic: list of participating teachers
-  targetClasses?: string[]; // For "combined" logic: list of participating classes
-  venue?: string; // Dedicated field for location (P-Hall, Lab, etc.)
+  teachers?: string[];
+  targetClasses?: string[];
+  venue?: string;
 }
 
-// Map: Day -> Period Index (1-9) -> Entry
 export type WeeklySchedule = Record<DayOfWeek, Record<number, TimetableEntry | null>>;
 
 export interface EntityProfile {
   id: string;
   name: string;
-  shortCode?: string; // Optional code (e.g. "JD" for John Doe)
+  shortCode?: string;
   type: 'TEACHER' | 'CLASS';
   schedule: WeeklySchedule;
 }
@@ -33,15 +30,15 @@ export interface Student {
   id: string;
   name: string;
   rollNumber: string;
-  classId: string; // Assigned class
+  classId: string;
 }
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
 
 export interface AttendanceRecord {
-  date: string; // ISO Date
+  date: string;
   period: number;
-  entityId: string; // Class ID
+  entityId: string;
   studentId: string;
   status: AttendanceStatus;
 }
@@ -52,7 +49,6 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-// AI Import Types
 export type AiImportStatus = 'IDLE' | 'PROCESSING' | 'REVIEW' | 'COMPLETED' | 'ERROR';
 
 export interface RawAiProfile {
@@ -65,4 +61,21 @@ export interface RawAiProfile {
 export interface AiImportResult {
   profiles: RawAiProfile[];
   rawTextResponse?: string;
+}
+
+// NEW SYNC TYPES
+export interface PairedDevice {
+  deviceId: string;
+  deviceName: string;
+  role: 'ADMIN' | 'TEACHER';
+  lastActive: string;
+}
+
+export interface SyncMetadata {
+  isPaired: boolean;
+  pairCode: string | null;
+  role: 'ADMIN' | 'TEACHER' | 'STANDALONE';
+  lastSync: string | null;
+  schoolId: string | null;
+  deviceId: string | null;
 }

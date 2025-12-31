@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { EntityProfile, Student, TimeSlot, TimetableEntry, AttendanceRecord, DayOfWeek, AiImportStatus, AiImportResult } from '../types';
+
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import { EntityProfile, Student, TimeSlot, TimetableEntry, AttendanceRecord, DayOfWeek, AiImportStatus, AiImportResult, SyncMetadata, PairedDevice } from '../types';
 import { DEFAULT_DATA, DEFAULT_STUDENTS, DEFAULT_TIME_SLOTS } from '../constants';
 import { processTimetableImport } from '../services/geminiService';
 
@@ -11,6 +12,15 @@ interface DataContextType {
   timeSlots: TimeSlot[];
   attendanceRecords: AttendanceRecord[];
   
+  // Sync Center
+  syncInfo: SyncMetadata;
+  pairedDevices: PairedDevice[];
+  generatePairCode: () => string;
+  joinSchool: (code: string) => Promise<boolean>;
+  disconnectSync: () => void;
+  syncNow: () => Promise<void>;
+  removeDevice: (deviceId: string) => void;
+
   aiImportStatus: AiImportStatus;
   aiImportResult: AiImportResult | null;
   aiImportErrorMessage: string | null;
@@ -52,10 +62,25 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
 
+  // Sync State
+  const [syncInfo, setSyncInfo] = useState<SyncMetadata>({
+    isPaired: false,
+    pairCode: null,
+    role: 'STANDALONE',
+    lastSync: null,
+    schoolId: null,
+    deviceId: null
+  });
+  const [pairedDevices, setPairedDevices] = useState<PairedDevice[]>([]);
+
   const [aiImportStatus, setAiImportStatus] = useState<AiImportStatus>('IDLE');
   const [aiImportResult, setAiImportResult] = useState<AiImportResult | null>(null);
   const [aiImportErrorMessage, setAiImportErrorMessage] = useState<string | null>(null);
 
+  // Use a ref to prevent infinite loops during sync operations
+  const isSyncingRef = useRef(false);
+
+  // Load initial data from localStorage
   useEffect(() => {
     try {
       const savedSchoolName = localStorage.getItem('mupini_schoolName');
@@ -64,6 +89,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const savedStudents = localStorage.getItem('mupini_students');
       const savedTimeSlots = localStorage.getItem('mupini_timeSlots');
       const savedAttendance = localStorage.getItem('mupini_attendance');
+      const savedSync = localStorage.getItem('mupini_sync');
 
       if (savedSchoolName) setSchoolName(JSON.parse(savedSchoolName));
       if (savedAcademicYear) setAcademicYear(JSON.parse(savedAcademicYear));
@@ -71,13 +97,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (savedStudents) setStudents(JSON.parse(savedStudents));
       if (savedTimeSlots) setTimeSlots(JSON.parse(savedTimeSlots));
       if (savedAttendance) setAttendanceRecords(JSON.parse(savedAttendance));
+      if (savedSync) setSyncInfo(JSON.parse(savedSync));
     } catch (e) {
-      console.error("Failed to load data", e);
+      console.error("Failed to load local data", e);
     } finally {
       setIsInitialized(true);
     }
   }, []);
 
+  // Save changes to local storage
   useEffect(() => {
     if (!isInitialized) return;
     localStorage.setItem('mupini_schoolName', JSON.stringify(schoolName));
@@ -86,64 +114,185 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('mupini_students', JSON.stringify(students));
     localStorage.setItem('mupini_timeSlots', JSON.stringify(timeSlots));
     localStorage.setItem('mupini_attendance', JSON.stringify(attendanceRecords));
-  }, [schoolName, academicYear, entities, students, timeSlots, attendanceRecords, isInitialized]);
+    localStorage.setItem('mupini_sync', JSON.stringify(syncInfo));
+  }, [schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo, isInitialized]);
 
-  const startAiImport = async (files: { file: File, label: 'TEACHER' | 'CLASS' }[]) => {
-    setAiImportStatus('PROCESSING');
-    setAiImportErrorMessage(null);
-    try {
-        const payload: { base64: string, mimeType: string, label: 'TEACHER' | 'CLASS' }[] = [];
+  // LIVE SYNC: Automatic Push for Admins
+  useEffect(() => {
+    if (isInitialized && syncInfo.isPaired && syncInfo.role === 'ADMIN' && !isSyncingRef.current) {
+        syncNow(); // Push every state change to the mock cloud
+    }
+  }, [schoolName, academicYear, entities, students, timeSlots]);
+
+  // LIVE SYNC: Automatic Polling for Teachers & Heartbeat
+  useEffect(() => {
+    if (syncInfo.isPaired && syncInfo.pairCode) {
+      const heartbeat = () => {
+        if (isSyncingRef.current) return;
         
-        for (const item of files) {
-            const base64 = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.readAsDataURL(item.file);
-                reader.onload = () => resolve((reader.result as string).split(',')[1]);
-            });
-            payload.push({ base64, mimeType: item.file.type, label: item.label });
-        }
+        const cloudDataStr = localStorage.getItem(`school_cloud_${syncInfo.pairCode}`);
+        if (cloudDataStr) {
+          const data = JSON.parse(cloudDataStr);
+          
+          // Update device roster state
+          setPairedDevices(data.devices || []);
+          
+          // Security Check: If my device was removed by an Admin, force disconnect
+          if (syncInfo.deviceId && data.devices) {
+             const stillAuthorized = data.devices.some((d: PairedDevice) => d.deviceId === syncInfo.deviceId);
+             if (!stillAuthorized) {
+                disconnectSync();
+                return;
+             }
+          }
 
-        const result = await processTimetableImport(payload);
+          // If role is Teacher, Pull latest master data
+          if (syncInfo.role === 'TEACHER') {
+              isSyncingRef.current = true;
+              setSchoolName(data.schoolName);
+              setAcademicYear(data.academicYear);
+              setEntities(data.entities);
+              setStudents(data.students);
+              setTimeSlots(data.timeSlots);
+              setSyncInfo(prev => ({ ...prev, lastSync: new Date().toISOString() }));
+              setTimeout(() => { isSyncingRef.current = false; }, 50);
+          }
+        }
+      };
+      
+      const interval = setInterval(heartbeat, 2000); // 2-second live refresh
+      return () => clearInterval(interval);
+    }
+  }, [syncInfo.isPaired, syncInfo.pairCode, syncInfo.deviceId, syncInfo.role]);
 
-        if (result && result.profiles.length > 0) {
-            setAiImportResult(result);
-            setAiImportStatus('REVIEW');
-        } else {
-            setAiImportStatus('ERROR');
-            setAiImportErrorMessage("No data found in files. Please check quality.");
-        }
-    } catch (err: any) {
-        setAiImportStatus('ERROR');
-        // Specific user-friendly error for quota issues
-        if (err.message?.includes('RESOURCE_EXHAUSTED') || err.message?.includes('limit: 0') || err.status === 429) {
-          setAiImportErrorMessage("RESOURCE_EXHAUSTED: Global API Quota hit. Please connect a personal API key in General Settings.");
-        } else {
-          setAiImportErrorMessage(err.message || "Extraction failed.");
-        }
+  // --- SYNC CENTER ACTIONS ---
+
+  const generatePairCode = () => {
+    const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const newSchoolId = `school-${Date.now()}`;
+    const myDeviceId = `dev-admin-${Date.now()}`;
+    const myDeviceName = `${navigator.platform} Admin`;
+    
+    const adminDevice: PairedDevice = {
+        deviceId: myDeviceId,
+        deviceName: myDeviceName,
+        role: 'ADMIN',
+        lastActive: new Date().toISOString()
+    };
+
+    const newSyncInfo: SyncMetadata = {
+      isPaired: true,
+      pairCode: newCode,
+      role: 'ADMIN',
+      lastSync: new Date().toISOString(),
+      schoolId: newSchoolId,
+      deviceId: myDeviceId
+    };
+
+    setSyncInfo(newSyncInfo);
+
+    localStorage.setItem(`school_cloud_${newCode}`, JSON.stringify({
+      schoolName, academicYear, entities, students, timeSlots,
+      devices: [adminDevice]
+    }));
+
+    return newCode;
+  };
+
+  const joinSchool = async (code: string): Promise<boolean> => {
+    const cloudDataStr = localStorage.getItem(`school_cloud_${code}`);
+    if (!cloudDataStr) return false;
+
+    try {
+      const data = JSON.parse(cloudDataStr);
+      const myDeviceId = `dev-staff-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+      const myDeviceName = `${navigator.platform} Staff`;
+
+      const newDevice: PairedDevice = {
+        deviceId: myDeviceId,
+        deviceName: myDeviceName,
+        role: 'TEACHER',
+        lastActive: new Date().toISOString()
+      };
+
+      data.devices = [...(data.devices || []), newDevice];
+      localStorage.setItem(`school_cloud_${code}`, JSON.stringify(data));
+
+      isSyncingRef.current = true;
+      setSchoolName(data.schoolName);
+      setAcademicYear(data.academicYear);
+      setEntities(data.entities);
+      setStudents(data.students);
+      setTimeSlots(data.timeSlots);
+      
+      setSyncInfo({
+        isPaired: true,
+        pairCode: code,
+        role: 'TEACHER',
+        lastSync: new Date().toISOString(),
+        schoolId: `school-${code}`,
+        deviceId: myDeviceId
+      });
+      setTimeout(() => { isSyncingRef.current = false; }, 50);
+      return true;
+    } catch (e) {
+      return false;
     }
   };
 
-  const cancelAiImport = () => {
-      setAiImportStatus('IDLE');
-      setAiImportResult(null);
-      setAiImportErrorMessage(null);
+  const syncNow = async () => {
+    if (!syncInfo.pairCode || !syncInfo.deviceId || isSyncingRef.current) return;
+    
+    const cloudDataStr = localStorage.getItem(`school_cloud_${syncInfo.pairCode}`);
+    if (!cloudDataStr) return;
+    
+    isSyncingRef.current = true;
+    const data = JSON.parse(cloudDataStr);
+
+    // Update the device roster last active time
+    if (data.devices) {
+        data.devices = data.devices.map((d: PairedDevice) => 
+            d.deviceId === syncInfo.deviceId ? { ...d, lastActive: new Date().toISOString() } : d
+        );
+    }
+
+    if (syncInfo.role === 'ADMIN') {
+        data.schoolName = schoolName;
+        data.academicYear = academicYear;
+        data.entities = entities;
+        data.students = students;
+        data.timeSlots = timeSlots;
+        localStorage.setItem(`school_cloud_${syncInfo.pairCode}`, JSON.stringify(data));
+        setSyncInfo(prev => ({ ...prev, lastSync: new Date().toISOString() }));
+    }
+    
+    setTimeout(() => { isSyncingRef.current = false; }, 50);
   };
 
-  const finalizeAiImport = () => {
-    if (!aiImportResult) return;
-
-    const newEntities: EntityProfile[] = aiImportResult.profiles.map(p => ({
-        id: `${p.type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        name: p.name,
-        shortCode: p.shortCode || p.name.substring(0, 3).toUpperCase(),
-        type: p.type,
-        schedule: p.schedule
-    }));
-
-    setEntities(prev => [...prev, ...newEntities]);
-    setAiImportStatus('COMPLETED');
-    setAiImportResult(null);
+  const removeDevice = (idToRemove: string) => {
+      if (syncInfo.role !== 'ADMIN' || !syncInfo.pairCode) return;
+      const cloudDataStr = localStorage.getItem(`school_cloud_${syncInfo.pairCode}`);
+      if (!cloudDataStr) return;
+      
+      const data = JSON.parse(cloudDataStr);
+      data.devices = (data.devices || []).filter((d: PairedDevice) => d.deviceId !== idToRemove);
+      localStorage.setItem(`school_cloud_${syncInfo.pairCode}`, JSON.stringify(data));
+      setPairedDevices(data.devices);
   };
+
+  const disconnectSync = () => {
+    setSyncInfo({
+      isPaired: false,
+      pairCode: null,
+      role: 'STANDALONE',
+      lastSync: null,
+      schoolId: null,
+      deviceId: null
+    });
+    setPairedDevices([]);
+  };
+
+  // --- DATA UPDATE HANDLERS ---
 
   const updateSchoolName = (name: string) => setSchoolName(name);
   const updateAcademicYear = (year: string) => setAcademicYear(year);
@@ -228,6 +377,53 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return attendanceRecords.filter(r => r.date === date && r.entityId === entityId && r.period === period);
   };
 
+  const startAiImport = async (files: { file: File, label: 'TEACHER' | 'CLASS' }[]) => {
+    setAiImportStatus('PROCESSING');
+    setAiImportErrorMessage(null);
+    try {
+        const payload: { base64: string, mimeType: string, label: 'TEACHER' | 'CLASS' }[] = [];
+        for (const item of files) {
+            const base64 = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(item.file);
+                reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            });
+            payload.push({ base64, mimeType: item.file.type, label: item.label });
+        }
+        const result = await processTimetableImport(payload);
+        if (result && result.profiles.length > 0) {
+            setAiImportResult(result);
+            setAiImportStatus('REVIEW');
+        } else {
+            setAiImportStatus('ERROR');
+            setAiImportErrorMessage("No data found in files.");
+        }
+    } catch (err: any) {
+        setAiImportStatus('ERROR');
+        setAiImportErrorMessage(err.message || "Extraction failed.");
+    }
+  };
+
+  const cancelAiImport = () => {
+      setAiImportStatus('IDLE');
+      setAiImportResult(null);
+      setAiImportErrorMessage(null);
+  };
+
+  const finalizeAiImport = () => {
+    if (!aiImportResult) return;
+    const newEntities: EntityProfile[] = aiImportResult.profiles.map(p => ({
+        id: `${p.type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        name: p.name,
+        shortCode: p.shortCode || p.name.substring(0, 3).toUpperCase(),
+        type: p.type,
+        schedule: p.schedule
+    }));
+    setEntities(prev => [...prev, ...newEntities]);
+    setAiImportStatus('COMPLETED');
+    setAiImportResult(null);
+  };
+
   const resetData = () => {
     setSchoolName('Mupini Combined School');
     setAcademicYear('2025');
@@ -235,6 +431,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setStudents(DEFAULT_STUDENTS);
     setTimeSlots(DEFAULT_TIME_SLOTS);
     setAttendanceRecords([]);
+    setSyncInfo({
+      isPaired: false,
+      pairCode: null,
+      role: 'STANDALONE',
+      lastSync: null,
+      schoolId: null,
+      deviceId: null
+    });
+    setPairedDevices([]);
   };
 
   const importData = (data: any) => {
@@ -249,6 +454,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <DataContext.Provider value={{
       schoolName, academicYear, entities, students, timeSlots, attendanceRecords,
+      syncInfo, pairedDevices, generatePairCode, joinSchool, disconnectSync, syncNow, removeDevice,
       aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport, finalizeAiImport,
       updateSchoolName, updateAcademicYear, updateEntities, updateStudents, updateTimeSlots,
       addEntity, updateEntity, deleteEntity, addStudent, updateStudent, deleteStudent,
