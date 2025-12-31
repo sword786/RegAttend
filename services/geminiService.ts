@@ -1,87 +1,82 @@
-
 import { GoogleGenAI } from "@google/genai";
-import { EntityProfile, TimeSlot, AiImportResult } from '../types';
+import { AiImportResult } from '../types';
 
 const TIMETABLE_SYSTEM_INSTRUCTION = `
-    You are a professional School Timetable Digitizer. 
-    Your goal: Convert multi-page school timetable documents into structured JSON.
+    You are a professional School Timetable Digitizer and Data Architect. 
+    Your goal: Process TWO documents (Teacher Timetable and Class Timetable) to create a 100% COMPLETE and unified digital school schedule.
 
-    ### 1. DOCUMENT STRUCTURE
-    - Pages 1-8: CLASS-WISE view (Header is a Class Name like "S1", "Secondary 1").
-    - Pages 9-19: TEACHER-WISE view (Header is a Teacher Name like "Mr. Smith").
+    ### 1. ABSOLUTE REQUIREMENT: EXHAUSTIVE EXTRACTION
+    - You MUST extract EVERY SINGLE profile found in the documents. 
+    - Do NOT truncate. Do NOT skip any teachers. Do NOT skip any classes.
+    - Processing speed is secondary to COMPLETENESS and ACCURACY.
 
-    ### 2. CORE EXTRACTION RULES
+    ### 2. DATA SOURCES
+    - Document 1: Teacher-wise Timetable (Each table header is a Teacher's Name).
+    - Document 2: Class-wise Timetable (Each table header is a Class Name/Grade).
 
-    #### IN TEACHER-WISE VIEW (Pages 9-19):
-    - **Identify the Class (CENTER TEXT):** The text in the center is the Class ID/Name.
-    - **COMBINED CLASSES (AH Logic):** 
-        - If the center contains slashes (e.g., "S2/D2"), set type: "combined" and targetClasses: ["S2", "D2"].
-        - IMPORTANT: Do NOT include slash-separated strings (like "S2/D2") in the "unknownCodes" list.
-    - **REGULAR CLASSES:** If it's a single class ID (e.g. "S1"), include it in "unknownCodes" for name mapping.
-    - **Subject & Venue:** Top-left is Subject, Top-right is Venue.
+    ### 3. SHORTHAND CODES (CRITICAL)
+    - The user wants the timetable grid to show CODES ONLY.
+    - "subject": Use only the shorthand code (e.g., "MATH", "ENG", "DOUR").
+    - "code": In the schedule slots, this MUST be the SHORTHAND CODE of the linked entity (e.g., Teacher Code "MHR" or Class Code "S1").
+    - "profiles[].shortCode": Correctly extract or generate a 2-4 letter shorthand code for every profile.
+    - "profiles[].name": This should still be the FULL HUMAN-READABLE NAME for search/reports.
 
-    #### IN CLASS-WISE VIEW (Pages 1-8):
-    - **Subject (CENTER TEXT):** The primary subject.
-    - **ELECTIVE PERIODS (ELV Logic):**
-        - Trigger: Subject is "ELV" or "HS" AND footer has multiple teachers (e.g., "IYS / MRD / NJB").
-        - Action: For each teacher in that footer, create a "Virtual Class" identifier: "ELV-[TeacherCode]" (e.g., "ELV-IYS").
-        - Set type: "split".
-        - MANDATORY: Include all "ELV-[TeacherCode]" strings in the "unknownCodes" list so the user can assign a unique class name for that specific teacher's group.
-    - **REGULAR PERIODS:** Footer contains a single Teacher Code. Include the Teacher Code in "unknownCodes" for name mapping.
+    ### 4. DATA STRUCTURE
+    - Days: Sat, Sun, Mon, Tue, Wed, Thu.
+    - Periods: 1 to 9.
+    - Slot Fields:
+        - "subject": Shorthand Subject Code.
+        - "room": (e.g., 101, Lab A).
+        - "code": The SHORTHAND CODE of the linked entity (Class Code for Teachers, Teacher Code for Classes).
 
-    ### 3. OUTPUT SPECIFICATION
-    - "code": The identifier found (Teacher Code in Class View, Class ID in Teacher View, or "ELV-[TeacherCode]").
-    - "type": "split" (ELV groups), "combined" (AH sessions), or "normal".
-    - "unknownCodes": Collect unique identifiers that need mapping.
-        - INCLUDE: "ELV-..." codes, single Teacher Codes, single Class IDs.
-        - EXCLUDE: "AH" or slash-separated combined strings like "S1/D1".
-
-    OUTPUT FORMAT (STRICT JSON ONLY):
+    ### 5. OUTPUT FORMAT (STRICT JSON ONLY)
+    - Return ONLY the JSON object. No preamble or post-explanation.
     {
-      "detectedType": "TEACHER_WISE" | "CLASS_WISE",
       "profiles": [
         {
           "name": "Full Profile Name",
+          "type": "TEACHER" | "CLASS",
+          "shortCode": "MHR",
           "schedule": {
             "Sat": { 
-              "1": { 
-                "subject": "MATH", 
-                "room": "101", 
-                "code": "10A",
-                "type": "normal",
-                "teachers": [],
-                "targetClasses": []
-              } 
+              "1": { "subject": "DOUR", "room": "101", "code": "S1" } 
             }
           }
         }
-      ],
-      "unknownCodes": ["ELV-IYS", "JD", "10A"]
+      ]
     }
 `;
 
-export const processTimetableImport = async (input: { text?: string, base64?: string, mimeType?: string }): Promise<AiImportResult | null> => {
+export const processTimetableImport = async (inputs: { 
+  base64: string, 
+  mimeType: string,
+  label: 'TEACHER' | 'CLASS'
+}[]): Promise<AiImportResult | null> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     let contentParts: any[] = [];
     
-    if (input.base64 && input.mimeType) {
+    inputs.forEach((input, index) => {
         contentParts.push({ 
           inlineData: { 
             data: input.base64, 
             mimeType: input.mimeType 
           } 
         });
-        contentParts.push({ text: "Digitize this timetable. CENTER text in teacher cells is the Class Name. Identify 'ELV' + multi-teachers as virtual 'ELV-Code' classes. Identify 'S2/D2' as combined sessions and skip their mapping." });
-    } else if (input.text) {
-        contentParts.push({ text: input.text });
-    } else {
-        return null;
-    }
+        contentParts.push({ text: `SOURCE ${index + 1}: This document contains the ${input.label} Timetable. Use CODES ONLY for the schedule entries.` });
+    });
+
+    contentParts.push({ 
+      text: `TASK: 
+      1. Extract ALL schedules from both documents. 
+      2. Ensure the schedule "subject" and "code" fields use SHORTHAND CODES only.
+      3. For every class and teacher detected, create a profile with a full name and a short code.
+      4. Output the result in the specified JSON format only.` 
+    });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-flash-lite-latest', 
+      model: 'gemini-3-pro-preview', 
       contents: { parts: contentParts },
       config: {
         systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
@@ -96,9 +91,7 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
 
     if (!data.profiles || data.profiles.length === 0) {
         return {
-            detectedType: data.detectedType || 'CLASS_WISE',
             profiles: [],
-            unknownCodes: [],
             rawTextResponse: responseText
         };
     }
@@ -109,9 +102,7 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
     }));
 
     return {
-        detectedType: data.detectedType || 'CLASS_WISE',
         profiles: processedProfiles,
-        unknownCodes: data.unknownCodes || [],
         rawTextResponse: responseText
     };
 
@@ -164,12 +155,11 @@ export const generateAiResponse = async (userPrompt: string, dataContext: any): 
   const systemInstruction = `
     You are the ${dataContext.schoolName} AI Assistant. 
     You have access to the current school state.
-    Context: ${JSON.stringify(dataContext.entities.map((e: EntityProfile) => ({ name: e.name, code: e.shortCode })))}
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-flash-lite-latest',
+      model: 'gemini-3-flash-preview',
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,

@@ -56,13 +56,13 @@ export interface ChatMessage {
 export type AiImportStatus = 'IDLE' | 'PROCESSING' | 'REVIEW' | 'COMPLETED' | 'ERROR';
 
 export interface RawAiProfile {
-  name: string; // The extracted name (e.g., "Mr. Smith" or "Grade 12")
+  name: string; 
+  type: 'TEACHER' | 'CLASS';
+  shortCode?: string;
   schedule: WeeklySchedule;
 }
 
 export interface AiImportResult {
-  detectedType: 'TEACHER_WISE' | 'CLASS_WISE';
   profiles: RawAiProfile[];
-  unknownCodes: string[]; // Codes found inside the slots (e.g., "10A" if teacher-wise, or "JD" if class-wise)
   rawTextResponse?: string;
 }

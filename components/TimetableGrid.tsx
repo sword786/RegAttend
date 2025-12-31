@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { DAYS } from '../constants';
 import { useData } from '../contexts/DataContext';
@@ -14,10 +15,16 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({ data, onSlotClick,
   const { timeSlots, entities } = useData();
   const isTeacher = data.type === 'TEACHER';
 
-  const resolveNameFromCode = (code: string | undefined): string => {
-      if (!code) return '';
-      const matched = entities.find(e => e.shortCode === code || e.name === code);
-      return matched ? matched.name : code;
+  const resolveNameFromIdentifier = (id: string | undefined): string => {
+      if (!id) return '';
+      const matched = entities.find(e => e.shortCode === id || e.name === id);
+      return matched ? matched.name : id;
+  };
+
+  const resolveCodeFromIdentifier = (id: string | undefined): string => {
+      if (!id) return '';
+      const matched = entities.find(e => e.shortCode === id || e.name === id);
+      return matched ? (matched.shortCode || matched.name) : id;
   };
 
   return (
@@ -49,11 +56,8 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({ data, onSlotClick,
               const entry = data.schedule && data.schedule[day] ? data.schedule[day][slot.period] : null;
               const isClickable = isEditing || entry;
 
-              const mainText = isTeacher ? entry?.teacherOrClass : entry?.subject;
-              const subText = isTeacher ? entry?.subject : entry?.teacherOrClass;
-              const room = entry?.room;
-              
-              const resolvedInfo = resolveNameFromCode(entry?.teacherOrClass);
+              const displayTargetCode = resolveCodeFromIdentifier(entry?.teacherOrClass);
+              const resolvedInfo = resolveNameFromIdentifier(entry?.teacherOrClass);
               const tooltipTitle = entry ? `${resolvedInfo}${entry.subject ? ' • ' + entry.subject : ''}` : '';
 
               return (
@@ -67,27 +71,37 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({ data, onSlotClick,
                 >
                   {entry ? (
                     <div className="flex-1 w-full h-full p-2 sm:p-3 flex flex-col relative z-10">
-                        {/* Labels (Top Row) */}
+                        {/* Top Row: Subcode for Teacher View or Room */}
                         <div className="flex justify-between items-start mb-auto">
                            <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase truncate max-w-[70%]">
-                             {subText || '-'}
+                             {isTeacher ? entry.subject : ''}
                            </span>
-                           {room && (
+                           {/* Fix: Access room via entry.room */}
+                           {entry.room && (
                                 <div className="flex items-center text-[8px] sm:text-[9px] text-slate-300 font-bold uppercase">
                                    <MapPin className="w-2 sm:w-2.5 h-2 sm:h-2.5 mr-0.5 shrink-0" />
-                                   {room}
+                                   {entry.room}
                                 </div>
                            )}
                         </div>
 
-                        {/* Center Content */}
+                        {/* Center Content: Bold and Large */}
                         <div className="my-auto flex items-center justify-center text-center px-1">
                              <span className={`font-black text-slate-700 leading-tight transition-transform group-hover:scale-105 ${
-                                 (mainText?.length || 0) > 8 ? 'text-[10px] sm:text-xs' : 'text-lg sm:text-xl'
+                                 (isTeacher ? displayTargetCode.length : entry.subject.length) > 8 ? 'text-[10px] sm:text-xs' : 'text-lg sm:text-xl'
                              }`}>
-                                 {mainText}
+                                 {isTeacher ? displayTargetCode : entry.subject}
                              </span>
                         </div>
+
+                        {/* Bottom Row: Teacher Code for Class View */}
+                        {!isTeacher && (
+                            <div className="mt-auto flex justify-end">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase truncate">
+                                    {displayTargetCode}
+                                </span>
+                            </div>
+                        )}
                     </div>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
