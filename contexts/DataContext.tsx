@@ -77,7 +77,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [aiImportResult, setAiImportResult] = useState<AiImportResult | null>(null);
   const [aiImportErrorMessage, setAiImportErrorMessage] = useState<string | null>(null);
 
-  // Use a ref to prevent infinite loops during sync operations
   const isSyncingRef = useRef(false);
 
   // Load initial data from localStorage
@@ -117,14 +116,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('mupini_sync', JSON.stringify(syncInfo));
   }, [schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo, isInitialized]);
 
-  // LIVE SYNC: Automatic Push for Admins
+  // LIVE SYNC: Automatic Push for Admins (Instant reactive sync)
   useEffect(() => {
     if (isInitialized && syncInfo.isPaired && syncInfo.role === 'ADMIN' && !isSyncingRef.current) {
-        syncNow(); // Push every state change to the mock cloud
+        const timeout = setTimeout(() => {
+            syncNow(); 
+        }, 500); // Debounced push to cloud
+        return () => clearTimeout(timeout);
     }
   }, [schoolName, academicYear, entities, students, timeSlots]);
 
-  // LIVE SYNC: Automatic Polling for Teachers & Heartbeat
+  // LIVE SYNC: 2-Second Heartbeat Polling for all paired devices
   useEffect(() => {
     if (syncInfo.isPaired && syncInfo.pairCode) {
       const heartbeat = () => {
@@ -134,10 +136,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (cloudDataStr) {
           const data = JSON.parse(cloudDataStr);
           
-          // Update device roster state
+          // Refresh device list
           setPairedDevices(data.devices || []);
           
-          // Security Check: If my device was removed by an Admin, force disconnect
+          // SECURITY: Revocation Check
           if (syncInfo.deviceId && data.devices) {
              const stillAuthorized = data.devices.some((d: PairedDevice) => d.deviceId === syncInfo.deviceId);
              if (!stillAuthorized) {
@@ -146,7 +148,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
              }
           }
 
-          // If role is Teacher, Pull latest master data
+          // TEACHER: Automatic Live Update Pull
           if (syncInfo.role === 'TEACHER') {
               isSyncingRef.current = true;
               setSchoolName(data.schoolName);
@@ -156,26 +158,35 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               setTimeSlots(data.timeSlots);
               setSyncInfo(prev => ({ ...prev, lastSync: new Date().toISOString() }));
               setTimeout(() => { isSyncingRef.current = false; }, 50);
+          } else {
+              // ADMIN: Update cloud with self heartbeat
+              const updatedDevices = data.devices.map((d: PairedDevice) => 
+                d.deviceId === syncInfo.deviceId ? { ...d, lastActive: new Date().toISOString() } : d
+              );
+              data.devices = updatedDevices;
+              localStorage.setItem(`school_cloud_${syncInfo.pairCode}`, JSON.stringify(data));
           }
+        } else if (syncInfo.role === 'TEACHER') {
+            // Master school deleted or code expired
+            disconnectSync();
         }
       };
       
-      const interval = setInterval(heartbeat, 2000); // 2-second live refresh
+      const interval = setInterval(heartbeat, 2000); 
       return () => clearInterval(interval);
     }
   }, [syncInfo.isPaired, syncInfo.pairCode, syncInfo.deviceId, syncInfo.role]);
 
-  // --- SYNC CENTER ACTIONS ---
+  // --- SYNC ACTIONS ---
 
   const generatePairCode = () => {
     const newCode = Math.floor(100000 + Math.random() * 900000).toString();
     const newSchoolId = `school-${Date.now()}`;
-    const myDeviceId = `dev-admin-${Date.now()}`;
-    const myDeviceName = `${navigator.platform} Admin`;
+    const myDeviceId = `admin-${Date.now()}`;
     
     const adminDevice: PairedDevice = {
         deviceId: myDeviceId,
-        deviceName: myDeviceName,
+        deviceName: "Primary Admin Console",
         role: 'ADMIN',
         lastActive: new Date().toISOString()
     };
@@ -205,8 +216,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     try {
       const data = JSON.parse(cloudDataStr);
-      const myDeviceId = `dev-staff-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-      const myDeviceName = `${navigator.platform} Staff`;
+      const myDeviceId = `staff-${Date.now()}`;
+      const myDeviceName = "Teacher Device";
 
       const newDevice: PairedDevice = {
         deviceId: myDeviceId,
@@ -249,7 +260,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isSyncingRef.current = true;
     const data = JSON.parse(cloudDataStr);
 
-    // Update the device roster last active time
     if (data.devices) {
         data.devices = data.devices.map((d: PairedDevice) => 
             d.deviceId === syncInfo.deviceId ? { ...d, lastActive: new Date().toISOString() } : d
@@ -281,6 +291,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const disconnectSync = () => {
+    if (syncInfo.role === 'ADMIN' && syncInfo.pairCode) {
+        localStorage.removeItem(`school_cloud_${syncInfo.pairCode}`);
+    }
     setSyncInfo({
       isPaired: false,
       pairCode: null,
@@ -292,7 +305,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setPairedDevices([]);
   };
 
-  // --- DATA UPDATE HANDLERS ---
+  // --- CORE DATA UPDATE HANDLERS ---
 
   const updateSchoolName = (name: string) => setSchoolName(name);
   const updateAcademicYear = (year: string) => setAcademicYear(year);
