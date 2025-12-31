@@ -11,7 +11,6 @@ interface DataContextType {
   timeSlots: TimeSlot[];
   attendanceRecords: AttendanceRecord[];
   
-  // AI Import State
   aiImportStatus: AiImportStatus;
   aiImportResult: AiImportResult | null;
   aiImportErrorMessage: string | null;
@@ -53,7 +52,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // AI State
   const [aiImportStatus, setAiImportStatus] = useState<AiImportStatus>('IDLE');
   const [aiImportResult, setAiImportResult] = useState<AiImportResult | null>(null);
   const [aiImportErrorMessage, setAiImportErrorMessage] = useState<string | null>(null);
@@ -112,12 +110,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setAiImportStatus('REVIEW');
         } else {
             setAiImportStatus('ERROR');
-            setAiImportErrorMessage("Gemini couldn't extract any schedules. Check file quality.");
+            setAiImportErrorMessage("No data found in files. Please check quality.");
         }
     } catch (err: any) {
-        console.error("AI Import Error:", err);
         setAiImportStatus('ERROR');
-        setAiImportErrorMessage(err.message || "Extraction failed.");
+        // Specific user-friendly error for quota issues
+        if (err.message?.includes('RESOURCE_EXHAUSTED') || err.message?.includes('limit: 0') || err.status === 429) {
+          setAiImportErrorMessage("RESOURCE_EXHAUSTED: Global API Quota hit. Please connect a personal API key in General Settings.");
+        } else {
+          setAiImportErrorMessage(err.message || "Extraction failed.");
+        }
     }
   };
 

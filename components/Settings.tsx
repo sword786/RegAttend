@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
-import { Trash2, Plus, FileText, Sparkles, Loader2, FileUp, Check, X, Upload, AlertCircle, ArrowRight, Pencil, Clock, Key, ExternalLink, Save, Download, RotateCcw, UserPlus, Layers, Users, GraduationCap, FileCheck } from 'lucide-react';
+import { Trash2, Plus, FileText, Sparkles, Loader2, FileUp, Check, X, Upload, AlertCircle, ArrowRight, Pencil, Clock, Key, ExternalLink, Save, Download, RotateCcw, UserPlus, Layers, Users, GraduationCap, FileCheck, ShieldAlert } from 'lucide-react';
 import { EntityProfile, TimeSlot } from '../types';
 
 type SettingsTab = 'general' | 'timetable' | 'teachers' | 'classes' | 'students' | 'import';
@@ -17,6 +17,7 @@ export const Settings: React.FC = () => {
   } = useData();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [hasCustomKey, setHasCustomKey] = useState(false);
   
   // Staging Files
   const [teacherFile, setTeacherFile] = useState<File | null>(null);
@@ -78,6 +79,15 @@ export const Settings: React.FC = () => {
   }, [timeSlots]);
 
   useEffect(() => {
+    const checkKey = async () => {
+        // @ts-ignore
+        const exists = await window.aistudio.hasSelectedApiKey();
+        setHasCustomKey(exists);
+    };
+    checkKey();
+  }, []);
+
+  useEffect(() => {
     if (activeTab === 'students' && !targetClassId && classes.length > 0) {
         setTargetClassId(classes[0].id);
     }
@@ -87,6 +97,7 @@ export const Settings: React.FC = () => {
     try {
       // @ts-ignore
       await window.aistudio.openSelectKey();
+      setHasCustomKey(true);
     } catch (e) {
       console.error("Key selection failed", e);
     }
@@ -97,7 +108,6 @@ export const Settings: React.FC = () => {
       if (teacherFile) files.push({ file: teacherFile, label: 'TEACHER' });
       if (classFile) files.push({ file: classFile, label: 'CLASS' });
       
-      // Enforce both files being present for intelligent cross-referencing
       if (files.length < 2) {
           alert("Please upload BOTH Teacher and Class timetables for accurate extraction.");
           return;
@@ -170,27 +180,6 @@ export const Settings: React.FC = () => {
       });
       setNewStudentName('');
       setNewStudentRoll('');
-  };
-
-  const handleSaveSlots = () => {
-      updateTimeSlots(localTimeSlots);
-      setIsEditingSlots(false);
-  };
-
-  const handleSlotChange = (index: number, field: keyof TimeSlot, value: any) => {
-      const newSlots = [...localTimeSlots];
-      newSlots[index] = { ...newSlots[index], [field]: value };
-      setLocalTimeSlots(newSlots);
-  };
-
-  const handleAddSlot = () => {
-      const nextPeriod = localTimeSlots.length + 1;
-      setLocalTimeSlots([...localTimeSlots, { period: nextPeriod, timeRange: '00:00 - 00:00' }]);
-  };
-
-  const handleRemoveSlot = (index: number) => {
-      const newSlots = localTimeSlots.filter((_, i) => i !== index).map((s, i) => ({ ...s, period: i + 1 }));
-      setLocalTimeSlots(newSlots);
   };
 
   const handleExportData = () => {
@@ -348,7 +337,7 @@ export const Settings: React.FC = () => {
               <h3 className="font-black text-slate-800 uppercase tracking-widest text-xs">General Config</h3>
               <div className="flex gap-2">
                   <button onClick={handleExportData} className="px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 flex items-center transition-all"><Download className="w-3.5 h-3.5 mr-2" /> Export</button>
-                  <button onClick={handleSelectKey} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 flex items-center transition-all"><Key className="w-3.5 h-3.5 mr-2" /> API Key</button>
+                  <button onClick={handleSelectKey} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 flex items-center transition-all"><Key className="w-3.5 h-3.5 mr-2" /> {hasCustomKey ? 'Key Active' : 'API Key'}</button>
               </div>
           </div>
           <div className="grid grid-cols-2 gap-6">
@@ -387,7 +376,7 @@ export const Settings: React.FC = () => {
       {activeTab === 'students' && (
           <div className="bg-white rounded-2xl border border-slate-200 p-8 space-y-6">
               <h3 className="font-black text-slate-800 uppercase tracking-widest text-xs">Enrollment</h3>
-              <div className="grid grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-4">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bulk CSV (Name, Roll)</label>
                       <textarea value={bulkStudentInput} onChange={e => setBulkStudentInput(e.target.value)} placeholder={`John Doe, R-001`} className="w-full h-40 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none" />
@@ -425,8 +414,22 @@ export const Settings: React.FC = () => {
             </div>
 
             {aiImportErrorMessage && (
-                <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex flex-col items-center gap-3 mb-10 text-rose-600 font-black text-[10px] uppercase tracking-widest">
-                    <AlertCircle className="w-5 h-5" /> {aiImportErrorMessage}
+                <div className="bg-rose-50 border border-rose-200 p-6 rounded-2xl flex flex-col items-center gap-4 mb-10 text-rose-600 font-black text-[11px] uppercase tracking-widest shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <ShieldAlert className="w-5 h-5" />
+                        <span>Operation Error: {aiImportErrorMessage}</span>
+                    </div>
+                    {aiImportErrorMessage.includes('RESOURCE_EXHAUSTED') || aiImportErrorMessage.includes('limit: 0') ? (
+                        <div className="flex flex-col items-center gap-3 border-t border-rose-100 pt-4 w-full">
+                            <p className="text-slate-500 font-bold lowercase normal-case tracking-normal max-w-sm">Your current API quota is exhausted. Please connect a personal API key with billing enabled to continue.</p>
+                            <button onClick={handleSelectKey} className="flex items-center gap-2 px-6 py-2.5 bg-rose-600 text-white rounded-xl shadow-lg hover:bg-rose-700 transition-all">
+                                <Key className="w-4 h-4" /> Use Personal Key
+                            </button>
+                            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-blue-500 hover:underline flex items-center gap-1 font-bold text-[9px]">
+                                Documentation <ExternalLink className="w-3 h-3" />
+                            </a>
+                        </div>
+                    ) : null}
                 </div>
             )}
 
@@ -470,13 +473,20 @@ export const Settings: React.FC = () => {
 
             <div className="mt-12 space-y-4">
                 <button 
-                    disabled={!teacherFile || !classFile}
+                    disabled={!teacherFile || !classFile || aiImportStatus === 'PROCESSING'}
                     onClick={handleStartProcessing}
                     className="w-full max-w-sm py-5 bg-blue-600 text-white rounded-3xl text-sm font-black uppercase tracking-widest shadow-2xl shadow-blue-200 hover:bg-blue-700 hover:scale-[1.02] active:scale-95 disabled:opacity-30 disabled:grayscale transition-all"
                 >
-                    Start Intelligent Extraction
+                    {aiImportStatus === 'PROCESSING' ? 'Processing...' : 'Start Intelligent Extraction'}
                 </button>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Supports PDFs, PNGs, and JPEGs up to 10MB each</p>
+                <div className="flex flex-col items-center gap-2">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Supports PDFs, PNGs, and JPEGs up to 10MB each</p>
+                    {!hasCustomKey && (
+                        <button onClick={handleSelectKey} className="text-[9px] font-black text-blue-500 uppercase flex items-center gap-1 hover:underline">
+                            <Key className="w-3 h-3" /> Connect personal key for high usage
+                        </button>
+                    )}
+                </div>
             </div>
           </div>
         </div>

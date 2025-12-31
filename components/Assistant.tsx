@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Sparkles } from 'lucide-react';
 import { generateAiResponse } from '../services/geminiService';
@@ -35,35 +36,35 @@ export const Assistant: React.FC = () => {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 h-[calc(100vh-140px)] flex flex-col overflow-hidden">
-      <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-            <div className="p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg text-white">
+    <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col overflow-hidden min-h-[500px] h-[calc(100vh-12rem)] max-h-[800px]">
+      <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+            <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl text-white shadow-lg shadow-blue-500/20">
                 <Sparkles className="w-5 h-5" />
             </div>
             <div>
-                <h3 className="font-bold text-gray-900">AI Schedule Assistant</h3>
-                <p className="text-xs text-gray-500">Powered by Gemini</p>
+                <h3 className="font-black text-slate-800 uppercase tracking-tight">AI Schedule Assistant</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Powered by Gemini Intelligent Engine</p>
             </div>
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`flex max-w-[80%] gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                msg.role === 'user' ? 'bg-gray-200' : 'bg-blue-100 text-blue-600'
+            <div className={`flex max-w-[85%] sm:max-w-[75%] gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm border ${
+                msg.role === 'user' ? 'bg-slate-100 border-slate-200' : 'bg-blue-50 border-blue-100 text-blue-600'
               }`}>
-                {msg.role === 'user' ? <User className="w-5 h-5 text-gray-600" /> : <Bot className="w-5 h-5" />}
+                {msg.role === 'user' ? <User className="w-5 h-5 text-slate-500" /> : <Bot className="w-5 h-5" />}
               </div>
-              <div className={`p-3.5 rounded-2xl text-sm leading-relaxed ${
+              <div className={`p-5 rounded-[1.5rem] text-sm leading-relaxed shadow-sm border ${
                 msg.role === 'user' 
-                  ? 'bg-primary text-white rounded-tr-none' 
-                  : 'bg-gray-100 text-gray-800 rounded-tl-none'
+                  ? 'bg-slate-900 text-white border-slate-800 rounded-tr-none' 
+                  : 'bg-white text-slate-800 border-slate-100 rounded-tl-none'
               }`}>
-                {msg.text.split('\n').map((line, i) => <p key={i} className="mb-1 last:mb-0">{line}</p>)}
-                <span className={`text-[10px] mt-2 block opacity-70 ${msg.role === 'user' ? 'text-blue-100' : 'text-gray-400'}`}>
+                {msg.text.split('\n').map((line, i) => <p key={i} className="mb-2 last:mb-0">{line}</p>)}
+                <span className={`text-[9px] font-bold mt-4 block opacity-40 uppercase tracking-widest ${msg.role === 'user' ? 'text-white' : 'text-slate-400'}`}>
                     {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
@@ -72,7 +73,7 @@ export const Assistant: React.FC = () => {
         ))}
         {loading && (
           <div className="flex justify-start">
-             <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-2xl rounded-tl-none ml-11">
+             <div className="flex items-center gap-2 p-4 bg-slate-50 rounded-2xl rounded-tl-none ml-14 border border-slate-100">
                 <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                 <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                 <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
@@ -81,7 +82,7 @@ export const Assistant: React.FC = () => {
         )}
       </div>
 
-      <div className="p-4 bg-white border-t border-gray-100">
+      <div className="p-6 bg-white border-t border-slate-100">
         <div className="relative">
           <input
             type="text"
@@ -89,12 +90,12 @@ export const Assistant: React.FC = () => {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             placeholder="Ask about a teacher's schedule..."
-            className="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all"
+            className="w-full pl-6 pr-14 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/30 transition-all placeholder-slate-400"
           />
           <button 
             onClick={handleSend}
             disabled={!input.trim() || loading}
-            className="absolute right-2 top-2 p-1.5 bg-accent text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:hover:bg-accent transition-colors"
+            className="absolute right-3 top-3 p-2 bg-blue-600 text-white rounded-[1rem] hover:bg-blue-700 shadow-lg shadow-blue-200 disabled:opacity-30 disabled:shadow-none transition-all active:scale-90"
           >
             <Send className="w-5 h-5" />
           </button>

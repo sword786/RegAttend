@@ -13,8 +13,8 @@ import { Menu, Search, Filter, Pencil, Eye, LayoutGrid, ChevronDown, BookUser, U
 import { TimetableEntry } from './types';
 import { DataProvider, useData } from './contexts/DataContext';
 
-const DashboardLayout: React.FC = () => {
-  const { entities, updateSchedule, academicYear } = useData();
+const DashboardContent: React.FC = () => {
+  const { entities, updateSchedule } = useData();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -22,64 +22,146 @@ const DashboardLayout: React.FC = () => {
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
 
-  // Auto-select first item when tab changes
-  useEffect(() => {
-    if ((activeTab === 'classes' || activeTab === 'teachers') && entities.length > 0) {
-        const type = activeTab === 'classes' ? 'CLASS' : 'TEACHER';
-        const filtered = entities.filter(e => e.type === type);
-        
-        // If current selection is invalid for new tab, select first available
-        const currentSelectionValid = filtered.find(e => e.id === selectedEntityId);
-        if (!currentSelectionValid && filtered.length > 0) {
-            setSelectedEntityId(filtered[0].id);
-        } else if (filtered.length === 0) {
-            setSelectedEntityId('');
-        }
-    }
-  }, [activeTab, entities, selectedEntityId]);
-
   const [attendanceModal, setAttendanceModal] = useState<{
-    isOpen: boolean; day: string; period: number; entry: TimetableEntry | null;
-  }>({ isOpen: false, day: '', period: 0, entry: null });
+    isOpen: boolean; day: string; period: number; entry: TimetableEntry | null; entityId: string;
+  }>({ isOpen: false, day: '', period: 0, entry: null, entityId: '' });
 
   const [editorModal, setEditorModal] = useState<{
     isOpen: boolean; day: string; period: number; entry: TimetableEntry | null;
   }>({ isOpen: false, day: '', period: 0, entry: null });
 
+  // Handle default selection when tabs change
+  useEffect(() => {
+    if ((activeTab === 'classes' || activeTab === 'teachers') && entities.length > 0) {
+      const type = activeTab === 'classes' ? 'CLASS' : 'TEACHER';
+      const filtered = entities.filter(e => e.type === type);
+      const currentSelectionValid = filtered.find(e => e.id === selectedEntityId);
+      
+      if (!currentSelectionValid && filtered.length > 0) {
+        setSelectedEntityId(filtered[0].id);
+      } else if (filtered.length === 0) {
+        setSelectedEntityId('');
+      }
+    }
+  }, [activeTab, entities, selectedEntityId]);
+
   const handleSlotClick = (day: string, period: number, entry: TimetableEntry | null) => {
     if (isEditMode) {
-        setEditorModal({ isOpen: true, day, period, entry });
-    } else if (entry) {
-        setAttendanceModal({ isOpen: true, day, period, entry });
+      setEditorModal({ isOpen: true, day, period, entry });
+    } else if (entry && selectedEntityId) {
+      setAttendanceModal({ isOpen: true, day, period, entry, entityId: selectedEntityId });
     }
+  };
+
+  const handleDashboardSessionClick = (entityId: string, day: string, period: number, entry: TimetableEntry) => {
+    setAttendanceModal({ isOpen: true, day, period, entry, entityId });
   };
 
   const handleScheduleSave = (entry: TimetableEntry | null) => {
     if (selectedEntityId) {
-        updateSchedule(selectedEntityId, editorModal.day, editorModal.period, entry);
+      updateSchedule(selectedEntityId, editorModal.day, editorModal.period, entry);
     }
   };
 
-  const selectedEntity = entities.find(d => d.id === selectedEntityId);
-  const listData = entities.filter(d => 
-    (activeTab === 'classes' ? d.type === 'CLASS' : d.type === 'TEACHER') &&
-    d.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const selectedEntity = entities.find(e => e.id === selectedEntityId);
 
-  const getPageTitle = () => {
-      switch (activeTab) {
-          case 'dashboard': return 'Live Overview';
-          case 'assistant': return 'AI Assistant';
-          case 'settings': return 'System Settings';
-          case 'attendance': return 'Attendance Reports';
-          default: return activeTab.charAt(0).toUpperCase() + activeTab.slice(1);
-      }
+  const renderActiveTab = () => {
+    switch (activeTab) {
+      case 'dashboard':
+        return <DashboardHome onSessionClick={handleDashboardSessionClick} />;
+      case 'classes':
+      case 'teachers':
+        if (entities.length === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center h-full text-center p-10 bg-white rounded-3xl border border-slate-100 border-dashed">
+                <LayoutGrid className="w-16 h-16 text-slate-200 mb-6" />
+                <h3 className="text-2xl font-black text-slate-800 uppercase tracking-widest">No Timetables Found</h3>
+                <p className="text-slate-400 text-xs mt-3 font-bold uppercase tracking-widest max-w-xs mx-auto">Upload or create a schedule in the settings tab to begin recording attendance</p>
+                <button 
+                  onClick={() => setActiveTab('settings')} 
+                  className="mt-10 px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-blue-200 hover:bg-blue-700 hover:scale-[1.05] transition-all"
+                >
+                  Configure System
+                </button>
+            </div>
+          );
+        }
+
+        const type = activeTab === 'classes' ? 'CLASS' : 'TEACHER';
+        const filteredEntities = entities.filter(e => e.type === type && e.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        
+        return (
+          <div className="flex flex-col h-full gap-5">
+             <div className="flex items-center gap-4 bg-white p-2.5 rounded-[1.5rem] border border-slate-100 shadow-sm">
+                <div className="flex-1 relative">
+                    <Search className="absolute left-4 top-3 w-4 h-4 text-slate-400" />
+                    <input 
+                        type="text" 
+                        placeholder={`Find ${activeTab}...`} 
+                        className="w-full pl-12 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none font-bold focus:ring-2 focus:ring-blue-100 transition-all"
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
+                   <button 
+                    onClick={() => setIsEditMode(false)} 
+                    title="View Mode"
+                    className={`p-2.5 rounded-lg transition-all ${!isEditMode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                   >
+                     <Eye className="w-4.5 h-4.5" />
+                   </button>
+                   <button 
+                    onClick={() => isEditMode ? setIsEditMode(false) : setIsPasswordOpen(true)} 
+                    title="Edit Mode"
+                    className={`p-2.5 rounded-lg transition-all ${isEditMode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                   >
+                     <Pencil className="w-4.5 h-4.5" />
+                   </button>
+                </div>
+             </div>
+
+             <div className="flex flex-1 gap-5 overflow-hidden">
+                <div className="w-72 bg-white border border-slate-100 rounded-[2rem] overflow-y-auto scrollbar-hide shadow-sm hidden md:flex flex-col">
+                    <div className="p-4 border-b border-slate-50 bg-slate-50/50">
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{activeTab} Registry</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto scrollbar-hide">
+                      {filteredEntities.map(e => (
+                          <button 
+                            key={e.id} 
+                            onClick={() => setSelectedEntityId(e.id)} 
+                            className={`w-full text-left p-5 border-b border-slate-50 transition-all group ${selectedEntityId === e.id ? 'bg-blue-50 border-blue-100' : 'hover:bg-slate-50'}`}
+                          >
+                              <div className={`text-sm font-black transition-colors ${selectedEntityId === e.id ? 'text-blue-700' : 'text-slate-800 group-hover:text-blue-600'}`}>{e.name}</div>
+                              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{e.shortCode || '??'}</div>
+                          </button>
+                      ))}
+                    </div>
+                </div>
+                <div className="flex-1 overflow-hidden bg-white rounded-[2rem] border border-slate-100 shadow-sm relative">
+                    {selectedEntity ? (
+                        <TimetableGrid data={selectedEntity} onSlotClick={handleSlotClick} isEditing={isEditMode} />
+                    ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-center p-10">
+                             <LayoutGrid className="w-16 h-16 text-slate-100 mb-4" />
+                             <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Select an entity to view schedule</p>
+                        </div>
+                    )}
+                </div>
+             </div>
+          </div>
+        );
+      case 'attendance':
+        return <AttendanceReport />;
+      case 'assistant':
+        return <Assistant />;
+      case 'settings':
+        return <Settings />;
+      default:
+        return <div>Tab Not Found</div>;
+    }
   };
-
-  const getPlaceholderIcon = () => {
-      if (activeTab === 'teachers') return <Users className="w-8 h-8 text-slate-300 mb-3" />;
-      return <BookUser className="w-8 h-8 text-slate-300 mb-3" />;
-  }
 
   return (
     <div className="flex h-screen bg-[#f8fafc] overflow-hidden text-gray-900 font-sans">
@@ -87,170 +169,74 @@ const DashboardLayout: React.FC = () => {
         isOpen={isPasswordOpen} 
         onClose={() => setIsPasswordOpen(false)} 
         onSuccess={() => setIsEditMode(true)}
-        title="Admin Mode"
+        title="Admin Authentication"
       />
 
       <Sidebar 
         activeTab={activeTab} 
-        setActiveTab={setActiveTab}
-        isMobileOpen={isMobileOpen}
-        setIsMobileOpen={setIsMobileOpen}
+        setActiveTab={setActiveTab} 
+        isMobileOpen={isMobileOpen} 
+        setIsMobileOpen={setIsMobileOpen} 
       />
 
-      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
-        {/* Responsive Navbar */}
-        <header className="h-14 sm:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 lg:px-8 z-40 shrink-0 shadow-sm">
-          <div className="flex items-center gap-2 sm:gap-4">
-            <button 
-              onClick={() => setIsMobileOpen(true)}
-              className="p-1.5 -ml-1 text-slate-600 rounded-lg lg:hidden hover:bg-slate-100 transition-colors"
-            >
-              <Menu className="w-5 h-5 sm:w-6 sm:h-6" />
-            </button>
-            <div className="flex flex-col">
-                <h1 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-wider">
-                  {getPageTitle()}
+      <main className="flex-1 flex flex-col min-w-0 bg-white lg:rounded-tl-[3.5rem] border-t lg:border-l border-slate-100 overflow-hidden relative shadow-2xl shadow-slate-200">
+        <header className="h-20 shrink-0 flex items-center justify-between px-8 border-b border-slate-50 bg-white/80 backdrop-blur-md sticky top-0 z-40">
+           <div className="flex items-center gap-6">
+              <button onClick={() => setIsMobileOpen(true)} className="p-2.5 lg:hidden hover:bg-slate-50 rounded-2xl transition-colors">
+                 <Menu className="w-6 h-6 text-slate-600" />
+              </button>
+              <div className="flex flex-col">
+                <h1 className="text-xl font-black text-slate-800 uppercase tracking-tight leading-none mb-1">
+                  {activeTab === 'dashboard' ? 'Live Overview' : activeTab.replace('-', ' ')}
                 </h1>
-                {selectedEntity && (activeTab === 'classes' || activeTab === 'teachers') && (
-                    <span className="text-[10px] font-bold text-blue-600 sm:hidden truncate max-w-[150px]">
-                        {selectedEntity.name}
-                    </span>
-                )}
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-             <div className="hidden sm:flex items-center text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full uppercase tracking-widest border border-slate-200">
-                AY {academicYear}
-             </div>
-          </div>
-        </header>
-
-        {/* Dynamic Content Area */}
-        <main className="flex-1 overflow-hidden p-3 sm:p-4 lg:p-6 flex flex-col">
-          {activeTab === 'dashboard' ? (
-              <DashboardHome />
-          ) : activeTab === 'assistant' ? (
-            <Assistant />
-          ) : activeTab === 'settings' ? (
-            <div className="h-full overflow-y-auto scrollbar-hide">
-                <Settings />
-            </div>
-          ) : activeTab === 'attendance' ? (
-             <AttendanceReport />
-          ) : (
-            <div className="flex flex-col h-full gap-4 sm:gap-6 min-w-0">
-              
-              {/* Adaptive Controls Bar */}
-              <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between shrink-0 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-                {/* Search */}
-                <div className="flex-1 relative max-w-md">
-                    <Search className="absolute inset-y-0 left-3 my-auto h-4 w-4 text-slate-400" />
-                    <input
-                        type="text"
-                        className="block w-full pl-9 pr-3 py-2.5 border-none rounded-xl text-sm bg-slate-50 text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-100 transition-all outline-none font-medium"
-                        placeholder={`Search ${activeTab}...`}
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                </div>
-                
-                {/* Dropdown Selector */}
-                <div className="relative min-w-[200px] md:w-64">
-                    <div className="absolute inset-y-0 right-3 my-auto h-4 w-4 pointer-events-none flex items-center justify-center">
-                        <ChevronDown className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <select
-                        value={selectedEntityId}
-                        onChange={(e) => setSelectedEntityId(e.target.value)}
-                        className="block w-full pl-4 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 bg-white focus:ring-2 focus:ring-blue-100 outline-none appearance-none cursor-pointer hover:border-blue-200 transition-colors shadow-sm"
-                        disabled={listData.length === 0}
-                    >
-                        {listData.length > 0 ? (
-                            listData.map(item => (
-                                <option key={item.id} value={item.id}>
-                                    {item.name} {item.shortCode ? `(${item.shortCode})` : ''}
-                                </option>
-                            ))
-                        ) : (
-                            <option value="" disabled>No {activeTab} found</option>
-                        )}
-                    </select>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Mupini Connect • 2025 Academic System</p>
                 </div>
               </div>
+           </div>
+        </header>
 
-              {/* Responsive Timetable Area */}
-              {selectedEntity ? (
-                  <div className="flex-1 flex flex-col rounded-2xl border border-slate-200 shadow-sm bg-white overflow-hidden min-h-0">
-                      <div className="px-4 py-3 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                            <LayoutGrid className="w-4 h-4 text-slate-400" />
-                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest hidden sm:inline">{selectedEntity.name} Schedule</span>
-                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest sm:hidden">Timetable</span>
-                        </div>
-                        <button 
-                            onClick={() => isEditMode ? setIsEditMode(false) : setIsPasswordOpen(true)}
-                            className={`flex items-center px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
-                                isEditMode 
-                                ? 'bg-orange-500 text-white shadow-sm' 
-                                : 'bg-white border border-slate-200 text-slate-500 hover:text-slate-800'
-                            }`}
-                        >
-                            {isEditMode ? <><Pencil className="w-3 h-3 mr-2" /> Editing</> : <><Eye className="w-3 h-3 mr-2" /> View Only</>}
-                        </button>
-                      </div>
-                      
-                      <div className="flex-1 overflow-hidden">
-                        <TimetableGrid 
-                            data={selectedEntity} 
-                            onSlotClick={handleSlotClick} 
-                            isEditing={isEditMode}
-                        />
-                      </div>
-                  </div>
-              ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center bg-white rounded-2xl border-2 border-dashed border-slate-200 p-10 text-center mx-4 mb-4">
-                      <div className="bg-slate-50 p-4 rounded-full mb-4">
-                          {getPlaceholderIcon()}
-                      </div>
-                      <h3 className="text-slate-700 font-bold text-lg mb-1">No Selection</h3>
-                      <p className="text-slate-400 text-sm max-w-xs mx-auto">
-                          Select a {activeTab === 'classes' ? 'Class' : 'Teacher'} from the dropdown above to view their timetable.
-                      </p>
-                  </div>
-              )}
-            </div>
-          )}
-        </main>
-      </div>
+        {/* This container is now the primary scroll area for all tabs */}
+        <div className="flex-1 overflow-y-auto scrollbar-hide p-6 sm:p-8 lg:p-10 bg-slate-50/30">
+           {renderActiveTab()}
+        </div>
 
-      {attendanceModal.isOpen && attendanceModal.entry && selectedEntity && (
-        <AttendanceModal
-          isOpen={attendanceModal.isOpen}
-          onClose={() => setAttendanceModal({ ...attendanceModal, isOpen: false })}
-          day={attendanceModal.day}
-          period={attendanceModal.period}
-          entry={attendanceModal.entry}
-          entityId={selectedEntity.id}
-          classNameOrTeacherName={selectedEntity.name}
-        />
-      )}
+        {attendanceModal.isOpen && attendanceModal.entry && (
+          <AttendanceModal 
+            isOpen={attendanceModal.isOpen}
+            onClose={() => setAttendanceModal({ ...attendanceModal, isOpen: false })}
+            day={attendanceModal.day}
+            period={attendanceModal.period}
+            entry={attendanceModal.entry}
+            entityId={attendanceModal.entityId}
+            classNameOrTeacherName=""
+          />
+        )}
 
-      {editorModal.isOpen && selectedEntity && (
-        <ScheduleEditorModal
-          isOpen={editorModal.isOpen}
-          onClose={() => setEditorModal({ ...editorModal, isOpen: false })}
-          onSave={handleScheduleSave}
-          day={editorModal.day}
-          period={editorModal.period}
-          currentEntry={editorModal.entry}
-          entityName={selectedEntity.name}
-          entityType={selectedEntity.type}
-        />
-      )}
+        {editorModal.isOpen && (
+          <ScheduleEditorModal 
+            isOpen={editorModal.isOpen}
+            onClose={() => setEditorModal({ ...editorModal, isOpen: false })}
+            onSave={handleScheduleSave}
+            day={editorModal.day}
+            period={editorModal.period}
+            currentEntry={editorModal.entry}
+            entityName={selectedEntity?.name || ''}
+            entityType={selectedEntity?.type || 'CLASS'}
+          />
+        )}
+      </main>
     </div>
   );
 };
 
-const App: React.FC = () => <DataProvider><DashboardLayout /></DataProvider>;
+const App: React.FC = () => {
+  return (
+    <DataProvider>
+      <DashboardContent />
+    </DataProvider>
+  );
+};
+
 export default App;
