@@ -9,7 +9,7 @@ import { Settings } from './components/Settings';
 import { AttendanceReport } from './components/AttendanceReport';
 import { DashboardHome } from './components/DashboardHome';
 import { PasswordModal } from './components/PasswordModal';
-import { Menu, Search, Filter, Pencil, Eye, LayoutGrid, ChevronDown, BookUser, Users } from 'lucide-react';
+import { Menu, Search, Pencil, Eye, LayoutGrid, ChevronDown } from 'lucide-react';
 import { TimetableEntry } from './types';
 import { DataProvider, useData } from './contexts/DataContext';
 
@@ -73,16 +73,10 @@ const DashboardContent: React.FC = () => {
       case 'teachers':
         if (entities.length === 0) {
           return (
-            <div className="flex flex-col items-center justify-center h-full text-center p-10 bg-white rounded-3xl border border-slate-100 border-dashed">
+            <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-slate-100 border-dashed">
                 <LayoutGrid className="w-16 h-16 text-slate-200 mb-6" />
-                <h3 className="text-2xl font-black text-slate-800 uppercase tracking-widest">No Timetables Found</h3>
-                <p className="text-slate-400 text-xs mt-3 font-bold uppercase tracking-widest max-w-xs mx-auto">Upload or create a schedule in the settings tab to begin recording attendance</p>
-                <button 
-                  onClick={() => setActiveTab('settings')} 
-                  className="mt-10 px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-blue-200 hover:bg-blue-700 hover:scale-[1.05] transition-all"
-                >
-                  Configure System
-                </button>
+                <h3 className="text-2xl font-black text-slate-800 uppercase tracking-widest text-center">No Timetables Found</h3>
+                <button onClick={() => setActiveTab('settings')} className="mt-10 px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-blue-200 hover:bg-blue-700 hover:scale-[1.05] transition-all">Configure System</button>
             </div>
           );
         }
@@ -91,61 +85,72 @@ const DashboardContent: React.FC = () => {
         const filteredEntities = entities.filter(e => e.type === type && e.name.toLowerCase().includes(searchTerm.toLowerCase()));
         
         return (
-          <div className="flex flex-col h-full gap-5">
-             <div className="flex items-center gap-4 bg-white p-2.5 rounded-[1.5rem] border border-slate-100 shadow-sm">
+          <div className="flex flex-col gap-6">
+             {/* Header Controls */}
+             <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4 bg-white p-3 rounded-[1.5rem] border border-slate-100 shadow-sm">
                 <div className="flex-1 relative">
-                    <Search className="absolute left-4 top-3 w-4 h-4 text-slate-400" />
+                    <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
                     <input 
                         type="text" 
-                        placeholder={`Find ${activeTab}...`} 
-                        className="w-full pl-12 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none font-bold focus:ring-2 focus:ring-blue-100 transition-all"
+                        placeholder={`Search ${activeTab}...`} 
+                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none font-bold focus:ring-2 focus:ring-blue-100 transition-all"
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                     />
                 </div>
-                <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
-                   <button 
-                    onClick={() => setIsEditMode(false)} 
-                    title="View Mode"
-                    className={`p-2.5 rounded-lg transition-all ${!isEditMode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                   >
-                     <Eye className="w-4.5 h-4.5" />
+                
+                {/* Mobile Dropdown Selector (Restored Feature) */}
+                <div className="md:hidden relative">
+                    <select 
+                        value={selectedEntityId}
+                        onChange={(e) => setSelectedEntityId(e.target.value)}
+                        className="w-full px-5 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm font-black text-blue-700 outline-none appearance-none"
+                    >
+                        {filteredEntities.map(e => (
+                            <option key={e.id} value={e.id}>{e.name} ({e.shortCode})</option>
+                        ))}
+                    </select>
+                    <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-blue-400 pointer-events-none" />
+                </div>
+
+                <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl shrink-0">
+                   <button onClick={() => setIsEditMode(false)} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest ${!isEditMode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                     <Eye className="w-4 h-4" /> View
                    </button>
-                   <button 
-                    onClick={() => isEditMode ? setIsEditMode(false) : setIsPasswordOpen(true)} 
-                    title="Edit Mode"
-                    className={`p-2.5 rounded-lg transition-all ${isEditMode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                   >
-                     <Pencil className="w-4.5 h-4.5" />
+                   <button onClick={() => isEditMode ? setIsEditMode(false) : setIsPasswordOpen(true)} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest ${isEditMode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                     <Pencil className="w-4 h-4" /> Edit
                    </button>
                 </div>
              </div>
 
-             <div className="flex flex-1 gap-5 overflow-hidden">
-                <div className="w-72 bg-white border border-slate-100 rounded-[2rem] overflow-y-auto scrollbar-hide shadow-sm hidden md:flex flex-col">
-                    <div className="p-4 border-b border-slate-50 bg-slate-50/50">
-                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{activeTab} Registry</span>
+             <div className="flex gap-6 items-start">
+                {/* Desktop Sidebar List */}
+                <div className="w-72 bg-white border border-slate-100 rounded-[2rem] shadow-sm hidden md:flex flex-col shrink-0 self-stretch">
+                    <div className="p-5 border-b border-slate-50 bg-slate-50/50 rounded-t-[2rem]">
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{activeTab} List</span>
                     </div>
-                    <div className="flex-1 overflow-y-auto scrollbar-hide">
+                    <div className="max-h-[600px] overflow-y-auto scrollbar-hide">
                       {filteredEntities.map(e => (
                           <button 
                             key={e.id} 
                             onClick={() => setSelectedEntityId(e.id)} 
-                            className={`w-full text-left p-5 border-b border-slate-50 transition-all group ${selectedEntityId === e.id ? 'bg-blue-50 border-blue-100' : 'hover:bg-slate-50'}`}
+                            className={`w-full text-left p-6 border-b border-slate-50 transition-all group ${selectedEntityId === e.id ? 'bg-blue-50 border-blue-100' : 'hover:bg-slate-50'}`}
                           >
                               <div className={`text-sm font-black transition-colors ${selectedEntityId === e.id ? 'text-blue-700' : 'text-slate-800 group-hover:text-blue-600'}`}>{e.name}</div>
-                              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{e.shortCode || '??'}</div>
+                              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">{e.shortCode || '??'}</div>
                           </button>
                       ))}
                     </div>
                 </div>
-                <div className="flex-1 overflow-hidden bg-white rounded-[2rem] border border-slate-100 shadow-sm relative">
+
+                {/* Main Schedule Display */}
+                <div className="flex-1 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden p-1">
                     {selectedEntity ? (
                         <TimetableGrid data={selectedEntity} onSlotClick={handleSlotClick} isEditing={isEditMode} />
                     ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-center p-10">
-                             <LayoutGrid className="w-16 h-16 text-slate-100 mb-4" />
-                             <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Select an entity to view schedule</p>
+                        <div className="py-32 flex flex-col items-center justify-center text-center px-10">
+                             <LayoutGrid className="w-16 h-16 text-slate-100 mb-6" />
+                             <p className="text-[11px] font-black text-slate-300 uppercase tracking-[0.25em]">Select an profile to view schedule</p>
                         </div>
                     )}
                 </div>
@@ -197,9 +202,11 @@ const DashboardContent: React.FC = () => {
            </div>
         </header>
 
-        {/* This container is now the primary scroll area for all tabs */}
-        <div className="flex-1 overflow-y-auto scrollbar-hide p-6 sm:p-8 lg:p-10 bg-slate-50/30">
-           {renderActiveTab()}
+        {/* This main container handles all vertical scrolling for ALL pages */}
+        <div className="flex-1 overflow-y-auto scrollbar-hide p-6 sm:p-10 bg-slate-50/20">
+           <div className="max-w-7xl mx-auto">
+              {renderActiveTab()}
+           </div>
         </div>
 
         {attendanceModal.isOpen && attendanceModal.entry && (
