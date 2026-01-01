@@ -102,16 +102,13 @@ export const Settings: React.FC = () => {
   const handleSaveFirebaseConfig = () => {
     try {
         let input = firebaseConfigInput.trim();
-        // Smart "Lax" Parser: Try to handle common JS object formats (no quotes on keys)
         if (input.startsWith('{') && input.endsWith('}')) {
             try {
-                // First try standard JSON
                 const parsed = JSON.parse(input);
                 setFirebaseConfig(parsed);
                 triggerConfirm("Cloud Engine Ready", "Firebase configuration saved. You can now act as a School Host.", () => {}, "Understood");
                 return;
             } catch (e) {
-                // If standard JSON fails, attempt to wrap keys in quotes (very simple regex)
                 const fixed = input.replace(/([{,]\s*)([a-zA-Z0-9]+)\s*:/g, '$1"$2":');
                 const secondParsed = JSON.parse(fixed);
                 setFirebaseConfig(secondParsed);
@@ -121,7 +118,7 @@ export const Settings: React.FC = () => {
         }
         alert("Please paste a valid Firebase config object (starts with { and ends with }).");
     } catch (e) {
-        alert("Invalid format. Please make sure you copied the entire config object from the Firebase console.");
+        alert("Invalid format. Please check your config string.");
     }
   };
 
@@ -329,18 +326,21 @@ export const Settings: React.FC = () => {
                     <div className="p-8 bg-blue-50 border border-blue-100 rounded-[2.5rem] flex flex-col sm:flex-row gap-6 items-start sm:items-center">
                         <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shrink-0 shadow-sm text-blue-600"><Info className="w-7 h-7" /></div>
                         <div className="space-y-1">
-                            <h4 className="text-sm font-black text-blue-800 uppercase tracking-tight">Who needs a Firebase account?</h4>
-                            <p className="text-xs text-blue-600 leading-relaxed font-bold opacity-80 uppercase tracking-widest">Only the <span className="underline">School Administrator</span> needs to provide a Firebase config. All staff members simply join using the Sync Token, which automatically links them to the same cloud engine.</p>
+                            <h4 className="text-sm font-black text-blue-800 uppercase tracking-tight">How to connect?</h4>
+                            <p className="text-xs text-blue-600 leading-relaxed font-bold opacity-80 uppercase tracking-widest">
+                                <span className="underline">Admins</span>: Paste your Firebase config below to Host.<br/>
+                                <span className="underline">Teachers</span>: Use the "Connect via Token" section below with the code from your Admin.
+                            </p>
                         </div>
                     </div>
                   )}
 
-                  {/* CONFIG ENTRY SECTION (Only if not joined as a teacher) */}
+                  {/* ADMIN SETUP SECTION */}
                   {(!syncInfo.isPaired || syncInfo.role === 'ADMIN') && (
                       <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
                           <div className="flex items-center gap-4 mb-4">
                               <div className="p-3 bg-amber-50 text-amber-600 rounded-xl"><Database className="w-6 h-6" /></div>
-                              <div><h4 className="text-xl font-black uppercase tracking-tight leading-none">Administrator Setup</h4><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Paste your firebaseConfig object to host the school cloud</p></div>
+                              <div><h4 className="text-xl font-black uppercase tracking-tight leading-none">Administrator Setup (Host)</h4><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Host the central database for your school</p></div>
                           </div>
                           <div className="relative">
                             <textarea 
@@ -353,7 +353,7 @@ export const Settings: React.FC = () => {
                           </div>
                           <div className="flex justify-between items-center">
                               <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline flex items-center gap-2"><ExternalLink className="w-4 h-4" /> Firebase Console</a>
-                              <button onClick={handleSaveFirebaseConfig} className="px-10 py-4 bg-blue-600 text-white rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all">Apply Configuration</button>
+                              <button onClick={handleSaveFirebaseConfig} className="px-10 py-4 bg-blue-600 text-white rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all">Apply Config</button>
                           </div>
                       </div>
                   )}
@@ -369,7 +369,7 @@ export const Settings: React.FC = () => {
                             </h3>
                             <div className="flex flex-col gap-1">
                                 <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${syncInfo.isPaired ? 'text-indigo-300' : 'text-slate-400'}`}>
-                                    {syncInfo.isPaired ? `Project: ${firebaseConfig?.projectId || 'Synced'}` : 'Configure Firebase to enable multi-device synchronization.'}
+                                    {syncInfo.isPaired ? `Project: ${firebaseConfig?.projectId || 'Linked'}` : 'Configure Firebase or Join via Token to sync.'}
                                 </p>
                             </div>
                           </div>
@@ -382,47 +382,53 @@ export const Settings: React.FC = () => {
                       )}
                   </div>
 
-                  {!syncInfo.isPaired ? (
-                    <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-6 duration-500 ${!firebaseConfig ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
-                        <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group">
+                  {!syncInfo.isPaired && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-6 duration-500">
+                        {/* HOST CARD (Needs Config) */}
+                        <div className={`bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group ${!firebaseConfig ? 'opacity-40 grayscale' : ''}`}>
                             <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-8 text-blue-600 group-hover:scale-110 transition-transform shadow-inner"><Server className="w-8 h-8" /></div>
                             <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Host School Cloud</h4>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Become the school's central database server. All staff devices will sync their attendance to your provided Firebase engine.</p>
-                            <button onClick={() => { const token = generateSyncToken(); setGeneratedToken(token); }} className="w-full py-5 bg-slate-900 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-blue-600 shadow-xl transition-all">Generate Staff Token</button>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Become the central database server. Staff will sync to your project.</p>
+                            <button 
+                                disabled={!firebaseConfig}
+                                onClick={() => { const token = generateSyncToken(); setGeneratedToken(token); }} 
+                                className="w-full py-5 bg-slate-900 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-blue-600 shadow-xl transition-all disabled:cursor-not-allowed"
+                            >
+                                {firebaseConfig ? 'Generate Staff Token' : 'Add Config to Unlock'}
+                            </button>
                         </div>
+                        
+                        {/* JOIN CARD (No Config needed!) */}
                         <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group">
                             <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform shadow-inner"><Smartphone className="w-8 h-8" /></div>
                             <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Connect via Token</h4>
-                            <div className="space-y-4">
-                                <textarea value={syncTokenInput} onChange={(e) => { setSyncTokenInput(e.target.value); setJoinError(null); }} placeholder="Paste the token shared by your Admin..." className={`w-full h-32 p-4 bg-slate-50 border rounded-2xl text-[10px] font-mono break-all focus:ring-4 focus:ring-blue-100 outline-none transition-all ${joinError ? 'border-rose-400' : 'border-slate-200'}`} />
+                            <div className="space-y-4 flex-1">
+                                <textarea 
+                                    value={syncTokenInput} 
+                                    onChange={(e) => { setSyncTokenInput(e.target.value); setJoinError(null); }} 
+                                    placeholder="Paste the token shared by your Admin..." 
+                                    className={`w-full h-32 p-4 bg-slate-50 border rounded-2xl text-[10px] font-mono break-all focus:ring-4 focus:ring-blue-100 outline-none transition-all ${joinError ? 'border-rose-400' : 'border-slate-200'}`} 
+                                />
                                 {joinError && <div className="text-rose-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {joinError}</div>}
                                 <button disabled={isJoining} onClick={handleImportToken} className="w-full py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-indigo-700 shadow-xl transition-all disabled:opacity-30">Join Real-time Sync</button>
                             </div>
                         </div>
                     </div>
-                  ) : (
-                    <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-8 text-center">
-                        <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-50"><Check className="w-10 h-10" /></div>
-                        <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Cloud Database Connected</h4>
-                        <p className="text-xs font-bold text-slate-400 max-w-sm mx-auto">This device is securely linked to the school's central database on Firebase. Updates appear here in real-time as they happen across the school.</p>
-                        <button onClick={() => triggerConfirm("Disconnect Cloud?", "Stop real-time syncing and switch back to Local-Only mode?", disconnectSync)} className="text-rose-600 text-[10px] font-black uppercase tracking-widest hover:underline flex items-center gap-2 mx-auto mt-4"><WifiOff className="w-4 h-4" /> Disconnect Database</button>
-                    </div>
                   )}
 
-                  {!firebaseConfig && !syncInfo.isPaired && (
-                    <div className="p-10 bg-slate-100 rounded-[3rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-center gap-4 animate-pulse">
-                        <Database className="w-12 h-12 text-slate-300" />
-                        <div className="space-y-1">
-                            <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">Step 1: Admin Configuration Required</p>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest opacity-60">Paste your Firebase project keys above to unlock Cloud Synchronization.</p>
-                        </div>
+                  {syncInfo.isPaired && (
+                    <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-8 text-center">
+                        <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-50"><Check className="w-10 h-10" /></div>
+                        <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Active Real-time Sync</h4>
+                        <p className="text-xs font-bold text-slate-400 max-w-sm mx-auto uppercase tracking-widest leading-loose">Device linked to school database. Updates are automatic.</p>
+                        <button onClick={() => triggerConfirm("Disconnect Cloud?", "Stop syncing and switch back to Local mode?", disconnectSync)} className="text-rose-600 text-[10px] font-black uppercase tracking-widest hover:underline flex items-center gap-2 mx-auto mt-4"><WifiOff className="w-4 h-4" /> Disconnect Database</button>
                     </div>
                   )}
 
                   {generatedToken && (
                     <div className="bg-emerald-600 p-12 rounded-[4rem] text-white text-center shadow-2xl animate-in zoom-in duration-500">
-                        <h4 className="text-3xl font-black tracking-tighter uppercase mb-6">Staff Token Generated</h4>
-                        <p className="text-xs text-emerald-100 font-bold uppercase tracking-widest mb-8 opacity-80">Share this token with your faculty. When they join, they will be automatically connected to your Firebase cloud project.</p>
+                        <h4 className="text-3xl font-black tracking-tighter uppercase mb-6">Staff Token Ready</h4>
+                        <p className="text-xs text-emerald-100 font-bold uppercase tracking-widest mb-8 opacity-80">Share this code with teachers. It includes your Firebase config so they don't have to set it up manually.</p>
                         <div className="bg-white/10 p-6 rounded-[2.5rem] border border-white/20 mb-8 max-h-48 overflow-y-auto scrollbar-hide">
                             <code className="text-[9px] font-mono break-all text-white/80">{generatedToken}</code>
                         </div>
@@ -431,7 +437,7 @@ export const Settings: React.FC = () => {
                                 try { await navigator.share({ title: 'Mupini Staff Token', text: generatedToken }); } 
                                 catch (e) { navigator.clipboard.writeText(generatedToken); setCopyFeedback(true); setTimeout(() => setCopyFeedback(false), 2000); }
                             }} className="px-10 py-5 bg-white text-emerald-600 rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] flex items-center gap-3">
-                                <Share2 className="w-4 h-4" /> {copyFeedback ? 'Copied to Clipboard' : 'Share with Faculty'}
+                                <Share2 className="w-4 h-4" /> {copyFeedback ? 'Copied' : 'Share with Teachers'}
                             </button>
                             <button onClick={() => setGeneratedToken(null)} className="px-8 py-5 bg-black/20 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em]">Close</button>
                         </div>
@@ -444,7 +450,7 @@ export const Settings: React.FC = () => {
           {activeTab === 'import' && (
             <>
               <SectionHeader 
-                title="AI Timetable Digitizer" 
+                title="AI Digitizer" 
                 description="Automated schedule extraction" 
                 onBack={aiImportStatus !== 'IDLE' ? cancelAiImport : undefined}
               />
@@ -454,7 +460,7 @@ export const Settings: React.FC = () => {
                         <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-100 shadow-sm flex flex-col group relative overflow-hidden">
                             <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><Users className="w-32 h-32 rotate-12" /></div>
                             <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-4 flex items-center">Teacher Timetable <div className={`ml-3 w-3 h-3 rounded-full ${teacherFile ? 'bg-emerald-500 shadow-lg shadow-emerald-200 animate-pulse' : 'bg-slate-200'}`}></div></h4>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Upload the document containing schedules grouped by Teacher names.</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Upload schedules grouped by Teacher names.</p>
                             <input type="file" ref={teacherFileInputRef} className="hidden" onChange={e => setTeacherFile(e.target.files?.[0] || null)} />
                             <button onClick={() => teacherFileInputRef.current?.click()} className={`w-full py-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] flex items-center justify-center gap-3 transition-all ${teacherFile ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
                                 {teacherFile ? <FileCheck className="w-5 h-5" /> : <Upload className="w-5 h-5" />}
@@ -464,7 +470,7 @@ export const Settings: React.FC = () => {
                         <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group relative overflow-hidden">
                             <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><GraduationCap className="w-32 h-32 rotate-12" /></div>
                             <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-4 flex items-center">Class Timetable <div className={`ml-3 w-3 h-3 rounded-full ${classFile ? 'bg-emerald-500 shadow-lg shadow-emerald-200 animate-pulse' : 'bg-slate-200'}`}></div></h4>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Upload the document containing schedules grouped by Class/Grade levels.</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Upload schedules grouped by Class levels.</p>
                             <input type="file" ref={classFileInputRef} className="hidden" onChange={e => setClassFile(e.target.files?.[0] || null)} />
                             <button onClick={() => classFileInputRef.current?.click()} className={`w-full py-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] flex items-center justify-center gap-3 transition-all ${classFile ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
                                 {classFile ? <FileCheck className="w-5 h-5" /> : <Upload className="w-5 h-5" />}
@@ -494,7 +500,7 @@ export const Settings: React.FC = () => {
                         </div>
                         <div>
                             <h3 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Extracting Schedule Data</h3>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.25em] mt-4 max-w-sm mx-auto leading-loose">The AI is scanning every row and table to build your digital school database. This takes 10-30 seconds.</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.25em] mt-4 max-w-sm mx-auto leading-loose">This takes 10-30 seconds.</p>
                         </div>
                         <div className="flex items-center justify-center gap-2">
                             <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
@@ -535,9 +541,9 @@ export const Settings: React.FC = () => {
                     <div className="bg-white p-20 rounded-[4rem] border-2 border-emerald-100 shadow-sm text-center animate-in zoom-in duration-500">
                         <div className="w-24 h-24 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-xl shadow-emerald-100"><Check className="w-12 h-12" /></div>
                         <h3 className="text-3xl font-black text-slate-800 uppercase tracking-tight">System Updated</h3>
-                        <p className="text-sm text-slate-500 font-bold leading-relaxed mt-4">All detected profiles have been added to your local database. You can now view them in the Teachers and Classes tabs.</p>
+                        <p className="text-sm text-slate-500 font-bold leading-relaxed mt-4">All detected profiles have been added to your local database.</p>
                         <div className="flex gap-4 justify-center mt-12">
-                            <button onClick={cancelAiImport} className="px-8 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest">Back to Upload</button>
+                            <button onClick={cancelAiImport} className="px-8 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest">Back</button>
                             <button onClick={() => setActiveTab('menu')} className="px-8 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-200">Settings Menu</button>
                         </div>
                     </div>
@@ -547,7 +553,7 @@ export const Settings: React.FC = () => {
                     <div className="bg-white p-12 rounded-[3rem] border-2 border-rose-100 shadow-sm text-center">
                         <div className="w-20 h-20 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-8"><AlertCircle className="w-10 h-10" /></div>
                         <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Digitization Failed</h3>
-                        <p className="text-sm text-slate-500 font-bold leading-relaxed mt-4 max-w-sm mx-auto">{aiImportErrorMessage || "Could not extract data from the provided documents. Please try clearer images."}</p>
+                        <p className="text-sm text-slate-500 font-bold leading-relaxed mt-4 max-w-sm mx-auto">{aiImportErrorMessage || "Could not extract data."}</p>
                         <button onClick={cancelAiImport} className="mt-10 px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl">Try Again</button>
                     </div>
                   )}

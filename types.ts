@@ -96,7 +96,7 @@ declare global {
   }
 
   interface Window {
-    // Removed readonly modifier to fix the identical modifiers error by matching global platform declarations.
-    aistudio: AIStudio;
+    // Added readonly modifier to fix the identical modifiers error by matching global platform declarations.
+    readonly aistudio: AIStudio;
   }
 }
