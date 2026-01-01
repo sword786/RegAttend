@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { Sidebar } from './components/Sidebar';
 import { TimetableGrid } from './components/TimetableGrid';
 import { AttendanceModal } from './components/AttendanceModal';
@@ -227,6 +228,7 @@ const DashboardContent: React.FC = () => {
           />
         )}
       </main>
+      <Analytics />
     </div>
   );
 };
