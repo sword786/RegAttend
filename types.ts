@@ -95,7 +95,7 @@ declare global {
   }
 
   interface Window {
-    // Adding readonly to match the modifier in the host environment and fix the "identical modifiers" error.
-    readonly aistudio: AIStudio;
+    // Removed readonly to match the declaration in the host environment and fix the "identical modifiers" error.
+    aistudio: AIStudio;
   }
 }

@@ -66,6 +66,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isInitialized, setIsInitialized] = useState(false);
   
   const skipNextBroadcast = useRef(false);
+  const syncDebounceRef = useRef<number | null>(null);
 
   const [syncInfo, setSyncInfo] = useState<SyncMetadata>({
     isPaired: false,
@@ -73,7 +74,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     role: 'STANDALONE',
     lastSync: null,
     schoolId: null,
-    deviceId: null,
+    deviceId: `dev-${Math.random().toString(36).substr(2, 9)}`, // Persistent device ID
     connectionState: 'OFFLINE'
   });
 
@@ -98,7 +99,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (st) setStudents(JSON.parse(st));
       if (ts) setTimeSlots(JSON.parse(ts));
       if (ar) setAttendanceRecords(JSON.parse(ar));
-      if (sy) setSyncInfo({ ...JSON.parse(sy), connectionState: 'CONNECTED' });
+      if (sy) {
+        const parsedSy = JSON.parse(sy);
+        setSyncInfo(prev => ({ 
+            ...parsedSy, 
+            deviceId: prev.deviceId, // Keep our unique ID
+            connectionState: 'CONNECTED' 
+        }));
+      }
     } catch (e) {
       console.warn("Persistence load failed", e);
     } finally {
@@ -106,17 +114,38 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
-  // Sync Relay: Listen for Cross-Device Signals
+  // Sync Relay: Listen for Remote Payloads
   useEffect(() => {
     if (syncInfo.isPaired && syncInfo.schoolId) {
-      const unsubscribe = SyncRelayService.subscribe(syncInfo.schoolId, (payload) => {
-        // When we get a signal from another device, trigger a refresh
-        console.log("Remote update detected:", payload.changeType);
-        forceSync();
+      const unsubscribe = SyncRelayService.subscribe(syncInfo.schoolId, (data) => {
+        // 1. Ignore if we sent it
+        if (data.senderId === syncInfo.deviceId) return;
+
+        // 2. Overwrite local state with incoming payload
+        const remote = data.payload;
+        if (remote) {
+          console.log("Applying remote update from:", data.senderId);
+          
+          // Disable broadcasting during state overwrite to prevent loops
+          skipNextBroadcast.current = true;
+          
+          if (remote.schoolName) setSchoolName(remote.schoolName);
+          if (remote.academicYear) setAcademicYear(remote.academicYear);
+          if (remote.entities) setEntities(remote.entities);
+          if (remote.students) setStudents(remote.students);
+          if (remote.timeSlots) setTimeSlots(remote.timeSlots);
+          if (remote.attendanceRecords) setAttendanceRecords(remote.attendanceRecords);
+          
+          setSyncInfo(prev => ({ 
+            ...prev, 
+            lastSync: new Date().toISOString(),
+            connectionState: 'CONNECTED'
+          }));
+        }
       });
       return unsubscribe;
     }
-  }, [syncInfo.isPaired, syncInfo.schoolId]);
+  }, [syncInfo.isPaired, syncInfo.schoolId, syncInfo.deviceId]);
 
   // Save changes and Local Broadcast
   useEffect(() => {
@@ -131,10 +160,21 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('mup_sy', JSON.stringify(syncInfo));
 
     if (!skipNextBroadcast.current) {
+        // Broadcast locally to other tabs
         LOCAL_CHANNEL.postMessage({ 
             type: 'DATA_UPDATE', 
             payload: { schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo } 
         });
+
+        // Broadcast to Cloud Relay (Throttled to 500ms)
+        if (syncInfo.isPaired && syncInfo.schoolId) {
+            if (syncDebounceRef.current) window.clearTimeout(syncDebounceRef.current);
+            syncDebounceRef.current = window.setTimeout(() => {
+                SyncRelayService.broadcastState(syncInfo.schoolId!, syncInfo.deviceId!, {
+                    schoolName, academicYear, entities, students, timeSlots, attendanceRecords
+                });
+            }, 500);
+        }
     }
     skipNextBroadcast.current = false;
   }, [schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo, isInitialized]);
@@ -160,18 +200,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // --- REAL-TIME SYNC HANDLERS ---
   
-  const broadcastToCloud = useCallback((changeType: string) => {
-    if (syncInfo.isPaired && syncInfo.schoolId) {
-      SyncRelayService.broadcastChange(syncInfo.schoolId, changeType);
-    }
-  }, [syncInfo.isPaired, syncInfo.schoolId]);
-
   const forceSync = async () => {
     if (!syncInfo.isPaired || !syncInfo.schoolId) return;
     setSyncInfo(prev => ({ ...prev, connectionState: 'SYNCING' }));
     
-    // Simulation of fetching remote data
-    await new Promise(r => setTimeout(r, 1000));
+    // In this relay model, the latest state is pushed to us.
+    // ForceSync essentially acts as a "Re-request" or status refresh.
+    await new Promise(r => setTimeout(r, 500));
     
     setSyncInfo(prev => ({ 
         ...prev, 
@@ -183,19 +218,19 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const generateSyncToken = () => {
     const masterId = syncInfo.schoolId || `sch-${Math.random().toString(36).substr(2, 9)}`;
     const payload = {
-      v: "3.0",
-      schoolName, academicYear, entities, students, timeSlots,
+      v: "4.0",
+      schoolName, academicYear, entities, students, timeSlots, attendanceRecords,
       masterId,
       timestamp: Date.now()
     };
     
-    setSyncInfo({
+    setSyncInfo(prev => ({
+        ...prev,
         isPaired: true, pairCode: "ADMIN", role: 'ADMIN',
         lastSync: new Date().toISOString(),
         schoolId: masterId,
-        deviceId: `master-${Date.now()}`,
         connectionState: 'CONNECTED'
-    });
+    }));
 
     return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
   };
@@ -208,20 +243,23 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       if (!decoded.schoolName || !decoded.entities) return false;
 
+      // Overwrite local with the token's master data
+      skipNextBroadcast.current = true;
       setSchoolName(decoded.schoolName);
       setAcademicYear(decoded.academicYear || '2025');
       setEntities(decoded.entities);
       setStudents(decoded.students || []);
       setTimeSlots(decoded.timeSlots || DEFAULT_TIME_SLOTS);
+      setAttendanceRecords(decoded.attendanceRecords || []);
       
-      setSyncInfo({
+      setSyncInfo(prev => ({
+        ...prev,
         isPaired: true, pairCode: "PAIRED", role: 'TEACHER',
         lastSync: new Date().toISOString(),
         schoolId: decoded.masterId,
-        deviceId: `staff-${Date.now()}`,
         masterSourceId: decoded.masterId,
         connectionState: 'CONNECTED'
-      });
+      }));
 
       return true;
     } catch (e) {
@@ -231,40 +269,32 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const disconnectSync = () => {
-    setSyncInfo({
+    setSyncInfo(prev => ({
+      ...prev,
       isPaired: false, pairCode: null, role: 'STANDALONE',
-      lastSync: null, schoolId: null, deviceId: null,
+      lastSync: null, schoolId: null,
       connectionState: 'OFFLINE'
-    });
+    }));
   };
 
-  // --- STANDARD DATA UPDATES ---
-  const updateSchoolName = (name: string) => { setSchoolName(name); broadcastToCloud('SCHOOL_NAME'); };
-  const updateAcademicYear = (year: string) => { setAcademicYear(year); broadcastToCloud('ACADEMIC_YEAR'); };
+  // --- DATA UPDATES ---
+  const updateSchoolName = (name: string) => setSchoolName(name);
+  const updateAcademicYear = (year: string) => setAcademicYear(year);
+  const updateEntities = (newEntities: EntityProfile[]) => setEntities(newEntities);
+  const updateStudents = (newStudents: Student[]) => setStudents(newStudents);
+  const updateTimeSlots = (newTimeSlots: TimeSlot[]) => setTimeSlots(newTimeSlots);
   
-  const updateEntities = (newEntities: EntityProfile[]) => { setEntities(newEntities); broadcastToCloud('UPDATE_ENTITIES'); };
-  const updateStudents = (newStudents: Student[]) => { setStudents(newStudents); broadcastToCloud('UPDATE_STUDENTS'); };
-  const updateTimeSlots = (newTimeSlots: TimeSlot[]) => { setTimeSlots(newTimeSlots); broadcastToCloud('UPDATE_TIMESLOTS'); };
-  
-  const addEntity = (entity: EntityProfile) => { setEntities(prev => [...prev, entity]); broadcastToCloud('ADD_ENTITY'); };
+  const addEntity = (entity: EntityProfile) => setEntities(prev => [...prev, entity]);
   const updateEntity = (id: string, updates: Partial<EntityProfile>) => {
     setEntities(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
-    broadcastToCloud('UPDATE_ENTITY');
   };
-  const deleteEntity = (id: string) => {
-    setEntities(prev => prev.filter(e => e.id !== id));
-    broadcastToCloud('DELETE_ENTITY');
-  };
+  const deleteEntity = (id: string) => setEntities(prev => prev.filter(e => e.id !== id));
 
-  const addStudent = (student: Student) => { setStudents(prev => [...prev, student]); broadcastToCloud('ADD_STUDENT'); };
+  const addStudent = (student: Student) => setStudents(prev => [...prev, student]);
   const updateStudent = (id: string, updates: Partial<Student>) => {
     setStudents(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
-    broadcastToCloud('UPDATE_STUDENT');
   };
-  const deleteStudent = (id: string) => {
-    setStudents(prev => prev.filter(s => s.id !== id));
-    broadcastToCloud('DELETE_STUDENT');
-  };
+  const deleteStudent = (id: string) => setStudents(prev => prev.filter(s => s.id !== id));
 
   const updateSchedule = (entityId: string, day: string, period: number, entry: TimetableEntry | null) => {
     setEntities(prevEntities => {
@@ -288,7 +318,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       setEntitySlot(entityId, entry);
 
-      // Simple mirroring logic
       const sourceIdentifier = sourceEntity.shortCode || sourceEntity.name;
       if (entry?.teacherOrClass) {
         const targetCode = entry.teacherOrClass;
@@ -302,7 +331,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       return nextEntities;
     });
-    broadcastToCloud('UPDATE_SCHEDULE');
   };
 
   const markAttendance = (newRecords: AttendanceRecord[]) => {
@@ -312,7 +340,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       );
       return [...filtered, ...newRecords];
     });
-    broadcastToCloud('MARK_ATTENDANCE');
   };
 
   const getAttendanceForPeriod = (date: string, entityId: string, period: number) => {
@@ -357,7 +384,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }));
     setEntities(prev => [...prev, ...newEntities]);
     setAiImportStatus('COMPLETED');
-    broadcastToCloud('IMPORT_TIMETABLE');
   };
 
   const resetData = () => {
