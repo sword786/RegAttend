@@ -274,7 +274,13 @@ export const Settings: React.FC = () => {
               <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-10">
                 <div className="flex justify-between items-center">
                     <h3 className="font-black text-slate-800 uppercase tracking-widest text-xs">Identity</h3>
-                    <button onClick={handleSelectKey} className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 flex items-center transition-all shadow-xl shadow-slate-200"><Key className="w-4 h-4 mr-2" /> {hasCustomKey ? 'Key Active' : 'Set API Key'}</button>
+                    <div className="flex flex-col items-end gap-2">
+                        <button onClick={handleSelectKey} className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 flex items-center transition-all shadow-xl shadow-slate-200"><Key className="w-4 h-4 mr-2" /> {hasCustomKey ? 'Key Active' : 'Set API Key'}</button>
+                        {/* Mandatory link to billing documentation */}
+                        <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 hover:underline font-bold flex items-center gap-1">
+                          <ExternalLink className="w-3 h-3" /> Billing Documentation
+                        </a>
+                    </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-3"><label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">School Name</label><input value={schoolName} onChange={e => updateSchoolName(e.target.value)} className="w-full p-4 border border-slate-200 rounded-2xl text-base font-black text-slate-700 bg-slate-50 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none transition-all" /></div>
@@ -378,7 +384,7 @@ export const Settings: React.FC = () => {
                                 {teacherFile ? teacherFile.name : 'Select PDF / Image'}
                             </button>
                         </div>
-                        <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-100 shadow-sm flex flex-col group relative overflow-hidden">
+                        <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group relative overflow-hidden">
                             <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><GraduationCap className="w-32 h-32 rotate-12" /></div>
                             <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-4 flex items-center">Class Timetable <div className={`ml-3 w-3 h-3 rounded-full ${classFile ? 'bg-emerald-500 shadow-lg shadow-emerald-200 animate-pulse' : 'bg-slate-200'}`}></div></h4>
                             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Upload the document containing schedules grouped by Class/Grade levels.</p>

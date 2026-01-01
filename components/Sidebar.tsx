@@ -74,27 +74,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                     <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <div className={`w-2 h-2 rounded-full ${
-                                    syncInfo.connectionState === 'CONNECTED' ? 'bg-emerald-500 animate-pulse' :
-                                    syncInfo.connectionState === 'SYNCING' ? 'bg-blue-500 animate-spin' :
+                                <div className={`w-2.5 h-2.5 rounded-full ${
+                                    syncInfo.connectionState === 'CONNECTED' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                                    syncInfo.connectionState === 'SYNCING' ? 'bg-blue-500 animate-pulse' :
                                     syncInfo.connectionState === 'ERROR' ? 'bg-rose-500' : 'bg-slate-300'
                                 }`}></div>
                                 <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
-                                    {syncInfo.connectionState === 'SYNCING' ? 'Updating...' : 'Real-time Cloud'}
+                                    {syncInfo.connectionState === 'SYNCING' ? 'Syncing...' : 'Live Cloud'}
                                 </span>
                             </div>
                             <button 
                                 onClick={() => forceSync()}
                                 className="p-1 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-blue-600 transition-all"
-                                title="Force Refresh"
+                                title="Sync Now"
                             >
                                 <RefreshCw className={`w-3.5 h-3.5 ${syncInfo.connectionState === 'SYNCING' ? 'animate-spin' : ''}`} />
                             </button>
                         </div>
                         <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
                             <div className="flex items-center gap-1.5 truncate">
-                                <Cloud className="w-3 h-3 shrink-0" />
-                                <span className="truncate">ID: {syncInfo.schoolId?.slice(-6) || 'N/A'}</span>
+                                <Cloud className={`w-3 h-3 shrink-0 ${syncInfo.connectionState === 'CONNECTED' ? 'text-blue-400' : ''}`} />
+                                <span className="truncate">Network: {syncInfo.schoolId?.slice(-6) || 'None'}</span>
                             </div>
                             {syncInfo.connectionState === 'ERROR' && <AlertCircle className="w-3 h-3 text-rose-500" />}
                         </div>
