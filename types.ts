@@ -1,4 +1,5 @@
 
+
 export type DayOfWeek = 'Sat' | 'Sun' | 'Mon' | 'Tue' | 'Wed' | 'Thu';
 
 export interface TimeSlot {
@@ -95,7 +96,7 @@ declare global {
   }
 
   interface Window {
-    // Removed readonly to match the declaration in the host environment and fix the "identical modifiers" error.
-    aistudio: AIStudio;
+    // Restored readonly modifier to fix the identical modifiers error by matching global platform declarations.
+    readonly aistudio: AIStudio;
   }
 }

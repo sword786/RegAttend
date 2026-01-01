@@ -7,7 +7,7 @@ import {
 } from '../types';
 import { DEFAULT_DATA, DEFAULT_STUDENTS, DEFAULT_TIME_SLOTS } from '../constants';
 import { processTimetableImport } from '../services/geminiService';
-import { SyncRelayService } from '../services/syncRelayService';
+import { FirebaseSync, initFirebase } from '../services/firebaseService';
 
 interface DataContextType {
   schoolName: string;
@@ -18,6 +18,8 @@ interface DataContextType {
   attendanceRecords: AttendanceRecord[];
   
   syncInfo: SyncMetadata;
+  firebaseConfig: any;
+  setFirebaseConfig: (config: any) => void;
   generateSyncToken: () => string; 
   importSyncToken: (token: string) => Promise<boolean>;
   disconnectSync: () => void;
@@ -53,7 +55,6 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-// Local Channel for Cross-Tab Communication
 const LOCAL_CHANNEL = new BroadcastChannel('mupini_local_sync');
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -63,26 +64,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [students, setStudents] = useState<Student[]>(DEFAULT_STUDENTS);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>(DEFAULT_TIME_SLOTS);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [firebaseConfig, setFirebaseConfigState] = useState<any>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   
-  const skipNextBroadcast = useRef(false);
-  const syncDebounceRef = useRef<number | null>(null);
-
   const [syncInfo, setSyncInfo] = useState<SyncMetadata>({
     isPaired: false,
     pairCode: null,
     role: 'STANDALONE',
     lastSync: null,
     schoolId: null,
-    deviceId: `dev-${Math.random().toString(36).substr(2, 9)}`, // Persistent device ID
+    deviceId: `dev-${Math.random().toString(36).substr(2, 9)}`,
     connectionState: 'OFFLINE'
   });
+
+  const skipFirebaseSync = useRef(false);
 
   const [aiImportStatus, setAiImportStatus] = useState<AiImportStatus>('IDLE');
   const [aiImportResult, setAiImportResult] = useState<AiImportResult | null>(null);
   const [aiImportErrorMessage, setAiImportErrorMessage] = useState<string | null>(null);
 
-  // Load persistence
+  // Persistence Load
   useEffect(() => {
     try {
       const sn = localStorage.getItem('mup_sn');
@@ -92,6 +93,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const ts = localStorage.getItem('mup_ts');
       const ar = localStorage.getItem('mup_ar');
       const sy = localStorage.getItem('mup_sy');
+      const fb = localStorage.getItem('mup_fb');
 
       if (sn) setSchoolName(JSON.parse(sn));
       if (ay) setAcademicYear(JSON.parse(ay));
@@ -99,12 +101,18 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (st) setStudents(JSON.parse(st));
       if (ts) setTimeSlots(JSON.parse(ts));
       if (ar) setAttendanceRecords(JSON.parse(ar));
+      if (fb) {
+        const parsedFb = JSON.parse(fb);
+        setFirebaseConfigState(parsedFb);
+        initFirebase(parsedFb);
+      }
       if (sy) {
         const parsedSy = JSON.parse(sy);
         setSyncInfo(prev => ({ 
             ...parsedSy, 
-            deviceId: prev.deviceId, // Keep our unique ID
-            connectionState: 'CONNECTED' 
+            deviceId: prev.deviceId,
+            // Don't mark as connected until firebase monitor says so
+            connectionState: 'CONNECTING' 
         }));
       }
     } catch (e) {
@@ -114,40 +122,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
-  // Sync Relay: Listen for Remote Payloads
-  useEffect(() => {
-    if (syncInfo.isPaired && syncInfo.schoolId) {
-      const unsubscribe = SyncRelayService.subscribe(syncInfo.schoolId, (data) => {
-        // 1. Ignore if we sent it
-        if (data.senderId === syncInfo.deviceId) return;
-
-        // 2. Overwrite local state with incoming payload
-        const remote = data.payload;
-        if (remote) {
-          console.log("Applying remote update from:", data.senderId);
-          
-          // Disable broadcasting during state overwrite to prevent loops
-          skipNextBroadcast.current = true;
-          
-          if (remote.schoolName) setSchoolName(remote.schoolName);
-          if (remote.academicYear) setAcademicYear(remote.academicYear);
-          if (remote.entities) setEntities(remote.entities);
-          if (remote.students) setStudents(remote.students);
-          if (remote.timeSlots) setTimeSlots(remote.timeSlots);
-          if (remote.attendanceRecords) setAttendanceRecords(remote.attendanceRecords);
-          
-          setSyncInfo(prev => ({ 
-            ...prev, 
-            lastSync: new Date().toISOString(),
-            connectionState: 'CONNECTED'
-          }));
-        }
-      });
-      return unsubscribe;
-    }
-  }, [syncInfo.isPaired, syncInfo.schoolId, syncInfo.deviceId]);
-
-  // Save changes and Local Broadcast
+  // Sync to Persistence and Local Tabs
   useEffect(() => {
     if (!isInitialized) return;
 
@@ -158,143 +133,152 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('mup_ts', JSON.stringify(timeSlots));
     localStorage.setItem('mup_ar', JSON.stringify(attendanceRecords));
     localStorage.setItem('mup_sy', JSON.stringify(syncInfo));
+    localStorage.setItem('mup_fb', JSON.stringify(firebaseConfig));
 
-    if (!skipNextBroadcast.current) {
-        // Broadcast locally to other tabs
-        LOCAL_CHANNEL.postMessage({ 
-            type: 'DATA_UPDATE', 
-            payload: { schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo } 
-        });
+    LOCAL_CHANNEL.postMessage({ 
+        type: 'DATA_UPDATE', 
+        payload: { schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo, firebaseConfig } 
+    });
+  }, [schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo, firebaseConfig, isInitialized]);
 
-        // Broadcast to Cloud Relay (Throttled to 500ms)
-        if (syncInfo.isPaired && syncInfo.schoolId) {
-            if (syncDebounceRef.current) window.clearTimeout(syncDebounceRef.current);
-            syncDebounceRef.current = window.setTimeout(() => {
-                SyncRelayService.broadcastState(syncInfo.schoolId!, syncInfo.deviceId!, {
-                    schoolName, academicYear, entities, students, timeSlots, attendanceRecords
-                });
-            }, 500);
-        }
-    }
-    skipNextBroadcast.current = false;
-  }, [schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo, isInitialized]);
-
-  // Listen for Local Tab Updates
+  // Firebase Real-time Subscription and Connection Monitor
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data.type === 'DATA_UPDATE') {
-        const p = event.data.payload;
-        skipNextBroadcast.current = true;
-        setSchoolName(p.schoolName);
-        setAcademicYear(p.academicYear);
-        setEntities(p.entities);
-        setStudents(p.students);
-        setTimeSlots(p.timeSlots);
-        setAttendanceRecords(p.attendanceRecords);
-        setSyncInfo(p.syncInfo);
-      }
-    };
-    LOCAL_CHANNEL.addEventListener('message', handleMessage);
-    return () => LOCAL_CHANNEL.removeEventListener('message', handleMessage);
-  }, []);
+    if (syncInfo.isPaired && syncInfo.schoolId && firebaseConfig) {
+      const unsubscribeMonitor = FirebaseSync.monitorConnection((isConnected) => {
+        setSyncInfo(prev => ({ 
+            ...prev, 
+            connectionState: isConnected ? 'CONNECTED' : 'CONNECTING' 
+        }));
+      });
 
-  // --- REAL-TIME SYNC HANDLERS ---
-  
-  const forceSync = async () => {
-    if (!syncInfo.isPaired || !syncInfo.schoolId) return;
-    setSyncInfo(prev => ({ ...prev, connectionState: 'SYNCING' }));
-    
-    // In this relay model, the latest state is pushed to us.
-    // ForceSync essentially acts as a "Re-request" or status refresh.
-    await new Promise(r => setTimeout(r, 500));
-    
-    setSyncInfo(prev => ({ 
-        ...prev, 
-        lastSync: new Date().toISOString(), 
-        connectionState: 'CONNECTED' 
-    }));
+      const unsubscribeData = FirebaseSync.subscribe(syncInfo.schoolId, (remoteData) => {
+        if (skipFirebaseSync.current) {
+            skipFirebaseSync.current = false;
+            return;
+        }
+
+        console.log("Cloud Push Received");
+        if (remoteData.schoolName) setSchoolName(remoteData.schoolName);
+        if (remoteData.academicYear) setAcademicYear(remoteData.academicYear);
+        if (remoteData.entities) setEntities(remoteData.entities);
+        if (remoteData.students) setStudents(remoteData.students);
+        if (remoteData.timeSlots) setTimeSlots(remoteData.timeSlots);
+        if (remoteData.attendanceRecords) setAttendanceRecords(remoteData.attendanceRecords);
+        
+        setSyncInfo(prev => ({ 
+            ...prev, 
+            lastSync: new Date().toISOString()
+        }));
+      });
+
+      return () => {
+        unsubscribeMonitor();
+        unsubscribeData();
+      };
+    }
+  }, [syncInfo.isPaired, syncInfo.schoolId, firebaseConfig]);
+
+  const setFirebaseConfig = (config: any) => {
+    setFirebaseConfigState(config);
+    initFirebase(config);
   };
 
-  const generateSyncToken = () => {
-    const masterId = syncInfo.schoolId || `sch-${Math.random().toString(36).substr(2, 9)}`;
-    const payload = {
-      v: "4.0",
-      schoolName, academicYear, entities, students, timeSlots, attendanceRecords,
-      masterId,
-      timestamp: Date.now()
-    };
-    
-    setSyncInfo(prev => ({
-        ...prev,
-        isPaired: true, pairCode: "ADMIN", role: 'ADMIN',
-        lastSync: new Date().toISOString(),
-        schoolId: masterId,
-        connectionState: 'CONNECTED'
-    }));
+  // --- DATA ACTIONS ---
+  // Granular updates to cloud
 
-    return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-  };
-
-  const importSyncToken = async (token: string): Promise<boolean> => {
-    setSyncInfo(prev => ({ ...prev, connectionState: 'CONNECTING' }));
-    try {
-      const json = decodeURIComponent(escape(atob(token)));
-      const decoded = JSON.parse(json);
-      
-      if (!decoded.schoolName || !decoded.entities) return false;
-
-      // Overwrite local with the token's master data
-      skipNextBroadcast.current = true;
-      setSchoolName(decoded.schoolName);
-      setAcademicYear(decoded.academicYear || '2025');
-      setEntities(decoded.entities);
-      setStudents(decoded.students || []);
-      setTimeSlots(decoded.timeSlots || DEFAULT_TIME_SLOTS);
-      setAttendanceRecords(decoded.attendanceRecords || []);
-      
-      setSyncInfo(prev => ({
-        ...prev,
-        isPaired: true, pairCode: "PAIRED", role: 'TEACHER',
-        lastSync: new Date().toISOString(),
-        schoolId: decoded.masterId,
-        masterSourceId: decoded.masterId,
-        connectionState: 'CONNECTED'
-      }));
-
-      return true;
-    } catch (e) {
-      setSyncInfo(prev => ({ ...prev, connectionState: 'ERROR' }));
-      return false;
+  const updateSchoolName = (name: string) => {
+    setSchoolName(name);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'schoolName', name);
     }
   };
 
-  const disconnectSync = () => {
-    setSyncInfo(prev => ({
-      ...prev,
-      isPaired: false, pairCode: null, role: 'STANDALONE',
-      lastSync: null, schoolId: null,
-      connectionState: 'OFFLINE'
-    }));
+  const updateAcademicYear = (year: string) => {
+    setAcademicYear(year);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'academicYear', year);
+    }
   };
 
-  // --- DATA UPDATES ---
-  const updateSchoolName = (name: string) => setSchoolName(name);
-  const updateAcademicYear = (year: string) => setAcademicYear(year);
-  const updateEntities = (newEntities: EntityProfile[]) => setEntities(newEntities);
-  const updateStudents = (newStudents: Student[]) => setStudents(newStudents);
-  const updateTimeSlots = (newTimeSlots: TimeSlot[]) => setTimeSlots(newTimeSlots);
+  const updateEntities = (newEntities: EntityProfile[]) => {
+    setEntities(newEntities);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'entities', newEntities);
+    }
+  };
+
+  const updateStudents = (newStudents: Student[]) => {
+    setStudents(newStudents);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'students', newStudents);
+    }
+  };
+
+  const updateTimeSlots = (newTimeSlots: TimeSlot[]) => {
+    setTimeSlots(newTimeSlots);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'timeSlots', newTimeSlots);
+    }
+  };
   
-  const addEntity = (entity: EntityProfile) => setEntities(prev => [...prev, entity]);
-  const updateEntity = (id: string, updates: Partial<EntityProfile>) => {
-    setEntities(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+  const addEntity = (entity: EntityProfile) => {
+    const next = [...entities, entity];
+    setEntities(next);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'entities', next);
+    }
   };
-  const deleteEntity = (id: string) => setEntities(prev => prev.filter(e => e.id !== id));
 
-  const addStudent = (student: Student) => setStudents(prev => [...prev, student]);
-  const updateStudent = (id: string, updates: Partial<Student>) => {
-    setStudents(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+  const updateEntity = (id: string, updates: Partial<EntityProfile>) => {
+    const next = entities.map(e => e.id === id ? { ...e, ...updates } : e);
+    setEntities(next);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'entities', next);
+    }
   };
-  const deleteStudent = (id: string) => setStudents(prev => prev.filter(s => s.id !== id));
+
+  const deleteEntity = (id: string) => {
+    const next = entities.filter(e => e.id !== id);
+    setEntities(next);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'entities', next);
+    }
+  };
+
+  const addStudent = (student: Student) => {
+    const next = [...students, student];
+    setStudents(next);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'students', next);
+    }
+  };
+
+  const updateStudent = (id: string, updates: Partial<Student>) => {
+    const next = students.map(s => s.id === id ? { ...s, ...updates } : s);
+    setStudents(next);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'students', next);
+    }
+  };
+
+  const deleteStudent = (id: string) => {
+    const next = students.filter(s => s.id !== id);
+    setStudents(next);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'students', next);
+    }
+  };
 
   const updateSchedule = (entityId: string, day: string, period: number, entry: TimetableEntry | null) => {
     setEntities(prevEntities => {
@@ -329,6 +313,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setEntitySlot(targetEntity.id, mirrorEntry);
         }
       }
+      
+      if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'entities', nextEntities);
+      }
       return nextEntities;
     });
   };
@@ -338,7 +327,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const filtered = prev.filter(r => 
         !newRecords.some(nr => nr.date === r.date && nr.period === r.period && nr.studentId === r.studentId)
       );
-      return [...filtered, ...newRecords];
+      const next = [...filtered, ...newRecords];
+      if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'attendanceRecords', next);
+      }
+      return next;
     });
   };
 
@@ -346,6 +340,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return attendanceRecords.filter(r => r.date === date && r.entityId === entityId && r.period === period);
   };
 
+  // AI Import
   const startAiImport = async (files: { file: File, label: 'TEACHER' | 'CLASS' }[]) => {
     setAiImportStatus('PROCESSING');
     try {
@@ -382,8 +377,92 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         type: p.type,
         schedule: p.schedule
     }));
-    setEntities(prev => [...prev, ...newEntities]);
+    
+    const next = [...entities, ...newEntities];
+    setEntities(next);
+    if (syncInfo.isPaired) {
+        skipFirebaseSync.current = true;
+        FirebaseSync.updateData(syncInfo.schoolId!, 'entities', next);
+    }
     setAiImportStatus('COMPLETED');
+  };
+
+  const forceSync = async () => {
+    if (!syncInfo.isPaired || !syncInfo.schoolId) return;
+    setSyncInfo(prev => ({ ...prev, connectionState: 'SYNCING' }));
+    await new Promise(r => setTimeout(r, 800));
+    setSyncInfo(prev => ({ ...prev, connectionState: 'CONNECTED', lastSync: new Date().toISOString() }));
+  };
+
+  const generateSyncToken = () => {
+    const masterId = syncInfo.schoolId || `sch-${Math.random().toString(36).substr(2, 9)}`;
+    const payload = {
+      v: "Firebase-v2",
+      schoolName, academicYear, entities, students, timeSlots, attendanceRecords,
+      masterId,
+      firebaseConfig, // Staff will inherit this project config!
+      timestamp: Date.now()
+    };
+    
+    setSyncInfo(prev => ({
+        ...prev,
+        isPaired: true, pairCode: "ADMIN", role: 'ADMIN',
+        lastSync: new Date().toISOString(),
+        schoolId: masterId,
+        connectionState: 'CONNECTED'
+    }));
+
+    if (firebaseConfig) {
+        FirebaseSync.setFullState(masterId, {
+            schoolName, academicYear, entities, students, timeSlots, attendanceRecords
+        });
+    }
+
+    return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  };
+
+  const importSyncToken = async (token: string): Promise<boolean> => {
+    setSyncInfo(prev => ({ ...prev, connectionState: 'CONNECTING' }));
+    try {
+      const json = decodeURIComponent(escape(atob(token)));
+      const decoded = JSON.parse(json);
+      
+      if (!decoded.schoolName || !decoded.entities) return false;
+
+      setSchoolName(decoded.schoolName);
+      setAcademicYear(decoded.academicYear || '2025');
+      setEntities(decoded.entities);
+      setStudents(decoded.students || []);
+      setTimeSlots(decoded.timeSlots || DEFAULT_TIME_SLOTS);
+      setAttendanceRecords(decoded.attendanceRecords || []);
+      
+      if (decoded.firebaseConfig) {
+        setFirebaseConfig(decoded.firebaseConfig);
+      }
+
+      setSyncInfo(prev => ({
+        ...prev,
+        isPaired: true, pairCode: "PAIRED", role: 'TEACHER',
+        lastSync: new Date().toISOString(),
+        schoolId: decoded.masterId,
+        masterSourceId: decoded.masterId,
+        connectionState: 'CONNECTED'
+      }));
+
+      return true;
+    } catch (e) {
+      setSyncInfo(prev => ({ ...prev, connectionState: 'ERROR' }));
+      return false;
+    }
+  };
+
+  const disconnectSync = () => {
+    setSyncInfo(prev => ({
+      ...prev,
+      isPaired: false, pairCode: null, role: 'STANDALONE',
+      lastSync: null, schoolId: null,
+      connectionState: 'OFFLINE'
+    }));
   };
 
   const resetData = () => {
@@ -393,13 +472,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setStudents(DEFAULT_STUDENTS);
     setTimeSlots(DEFAULT_TIME_SLOTS);
     setAttendanceRecords([]);
+    setFirebaseConfigState(null);
     disconnectSync();
   };
 
   return (
     <DataContext.Provider value={{
       schoolName, academicYear, entities, students, timeSlots, attendanceRecords,
-      syncInfo, generateSyncToken, importSyncToken, disconnectSync, forceSync,
+      syncInfo, firebaseConfig, setFirebaseConfig, generateSyncToken, importSyncToken, disconnectSync, forceSync,
       aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport, finalizeAiImport,
       updateSchoolName, updateAcademicYear, updateEntities, updateStudents, updateTimeSlots,
       addEntity, updateEntity, deleteEntity, addStudent, updateStudent, deleteStudent,

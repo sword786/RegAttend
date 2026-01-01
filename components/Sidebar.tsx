@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, Users, GraduationCap, Calendar, MessageSquare, Settings, Cloud, Zap, RefreshCw, AlertCircle } from 'lucide-react';
+import { LayoutDashboard, Users, GraduationCap, Calendar, MessageSquare, Settings, Cloud, Zap, RefreshCw, AlertCircle, Database } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 
 interface SidebarProps {
@@ -11,7 +11,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen }) => {
-  const { schoolName, syncInfo, forceSync } = useData();
+  const { schoolName, syncInfo, forceSync, firebaseConfig } = useData();
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -80,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                                     syncInfo.connectionState === 'ERROR' ? 'bg-rose-500' : 'bg-slate-300'
                                 }`}></div>
                                 <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
-                                    {syncInfo.connectionState === 'SYNCING' ? 'Syncing...' : 'Live Cloud'}
+                                    {syncInfo.connectionState === 'SYNCING' ? 'Syncing...' : 'Firebase Cloud'}
                                 </span>
                             </div>
                             <button 
@@ -93,8 +93,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                         </div>
                         <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
                             <div className="flex items-center gap-1.5 truncate">
-                                <Cloud className={`w-3 h-3 shrink-0 ${syncInfo.connectionState === 'CONNECTED' ? 'text-blue-400' : ''}`} />
-                                <span className="truncate">Network: {syncInfo.schoolId?.slice(-6) || 'None'}</span>
+                                <Database className={`w-3 h-3 shrink-0 ${syncInfo.connectionState === 'CONNECTED' ? 'text-blue-400' : ''}`} />
+                                <span className="truncate">Cloud: {syncInfo.schoolId?.slice(-6) || 'None'}</span>
                             </div>
                             {syncInfo.connectionState === 'ERROR' && <AlertCircle className="w-3 h-3 text-rose-500" />}
                         </div>

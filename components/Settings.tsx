@@ -7,7 +7,7 @@ import {
   Download, RotateCcw, UserPlus, Layers, Users, GraduationCap, 
   FileCheck, ShieldAlert, ArrowLeft, Settings as SettingsIcon, ChevronRight,
   Cloud, CloudOff, RefreshCw, Smartphone, Copy, Monitor, ShieldCheck, UserMinus, Zap, BookOpen, Share2, ClipboardList,
-  ChevronDown, Wifi, WifiOff
+  ChevronDown, Wifi, WifiOff, Database, Server, Info, Terminal
 } from 'lucide-react';
 import { EntityProfile, TimeSlot } from '../types';
 
@@ -22,7 +22,8 @@ export const Settings: React.FC = () => {
     timeSlots, updateTimeSlots,
     resetData,
     aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport, finalizeAiImport,
-    syncInfo, generateSyncToken, importSyncToken, disconnectSync
+    syncInfo, generateSyncToken, importSyncToken, disconnectSync,
+    firebaseConfig, setFirebaseConfig
   } = useData();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('menu');
@@ -33,6 +34,8 @@ export const Settings: React.FC = () => {
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+
+  const [firebaseConfigInput, setFirebaseConfigInput] = useState(firebaseConfig ? JSON.stringify(firebaseConfig, null, 2) : '');
 
   const [teacherFile, setTeacherFile] = useState<File | null>(null);
   const [classFile, setClassFile] = useState<File | null>(null);
@@ -96,6 +99,32 @@ export const Settings: React.FC = () => {
     startAiImport(filesToProcess);
   };
 
+  const handleSaveFirebaseConfig = () => {
+    try {
+        let input = firebaseConfigInput.trim();
+        // Smart "Lax" Parser: Try to handle common JS object formats (no quotes on keys)
+        if (input.startsWith('{') && input.endsWith('}')) {
+            try {
+                // First try standard JSON
+                const parsed = JSON.parse(input);
+                setFirebaseConfig(parsed);
+                triggerConfirm("Cloud Engine Ready", "Firebase configuration saved. You can now act as a School Host.", () => {}, "Understood");
+                return;
+            } catch (e) {
+                // If standard JSON fails, attempt to wrap keys in quotes (very simple regex)
+                const fixed = input.replace(/([{,]\s*)([a-zA-Z0-9]+)\s*:/g, '$1"$2":');
+                const secondParsed = JSON.parse(fixed);
+                setFirebaseConfig(secondParsed);
+                triggerConfirm("Cloud Engine Ready", "Firebase configuration saved (auto-corrected format). You can now act as a School Host.", () => {}, "Understood");
+                return;
+            }
+        }
+        alert("Please paste a valid Firebase config object (starts with { and ends with }).");
+    } catch (e) {
+        alert("Invalid format. Please make sure you copied the entire config object from the Firebase console.");
+    }
+  };
+
   const handleImportToken = async () => {
     if (!syncTokenInput.trim()) return;
     setIsJoining(true);
@@ -104,12 +133,12 @@ export const Settings: React.FC = () => {
       const success = await importSyncToken(syncTokenInput);
       if (success) {
         setSyncTokenInput('');
-        triggerConfirm("Sync Successful", "Your device is now paired with the real-time cloud database.", () => {}, "Got it");
+        triggerConfirm("Cloud Sync Active", "Successfully paired with the school database. Updates will now arrive in real-time.", () => {}, "Awesome");
       } else {
-        setJoinError("Invalid or corrupted sync token.");
+        setJoinError("The token is invalid or has expired.");
       }
     } catch (e) {
-      setJoinError("Failed to process token.");
+      setJoinError("Connection failed. Check your internet.");
     } finally {
       setIsJoining(false);
     }
@@ -254,11 +283,11 @@ export const Settings: React.FC = () => {
         <div className="space-y-10 pb-20 animate-in fade-in slide-in-from-bottom-6 duration-500">
           <div className="flex items-center gap-6">
               <div className="p-4 bg-slate-900 text-white rounded-[1.5rem] shadow-xl shadow-slate-200"><SettingsIcon className="w-8 h-8" /></div>
-              <div><h2 className="text-4xl font-black text-slate-800 tracking-tighter uppercase leading-none">Settings Center</h2><p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.25em] mt-2">Manage Master Records & APK Sync</p></div>
+              <div><h2 className="text-4xl font-black text-slate-800 tracking-tighter uppercase leading-none">Settings Center</h2><p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.25em] mt-2">Manage Master Records & Firebase Sync</p></div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             <MenuCard icon={<RotateCcw className="w-7 h-7" />} title="General" description="School name, year & local API keys" onClick={() => setActiveTab('general')} color="blue" />
-            <MenuCard icon={<Smartphone className="w-7 h-7" />} title="Sync Database" description="Pair with Real-time Cloud" onClick={() => setActiveTab('sync')} color="indigo" highlight={!syncInfo.isPaired} />
+            <MenuCard icon={<Database className="w-7 h-7" />} title="Firebase Cloud" description="Pair with Real-time Database" onClick={() => setActiveTab('sync')} color="indigo" highlight={!syncInfo.isPaired} />
             <MenuCard icon={<Users className="w-7 h-7" />} title="Teachers" description="Faculty registry & identifiers" onClick={() => setActiveTab('teachers')} color="purple" />
             <MenuCard icon={<GraduationCap className="w-7 h-7" />} title="Classes" description="Grade levels, groups & sections" onClick={() => setActiveTab('classes')} color="emerald" />
             <MenuCard icon={<UserPlus className="w-7 h-7" />} title="Students" description="Enrollment rosters & CSV imports" onClick={() => setActiveTab('students')} color="rose" />
@@ -276,7 +305,6 @@ export const Settings: React.FC = () => {
                     <h3 className="font-black text-slate-800 uppercase tracking-widest text-xs">Identity</h3>
                     <div className="flex flex-col items-end gap-2">
                         <button onClick={handleSelectKey} className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 flex items-center transition-all shadow-xl shadow-slate-200"><Key className="w-4 h-4 mr-2" /> {hasCustomKey ? 'Key Active' : 'Set API Key'}</button>
-                        {/* Mandatory link to billing documentation */}
                         <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 hover:underline font-bold flex items-center gap-1">
                           <ExternalLink className="w-3 h-3" /> Billing Documentation
                         </a>
@@ -293,68 +321,117 @@ export const Settings: React.FC = () => {
 
           {activeTab === 'sync' && (
             <>
-              <SectionHeader title="Real-time Sync Center" description="Integrate with Cloud Database" />
+              <SectionHeader title="Firebase Sync Center" description="Real-time Synchronization Engine" />
               <div className="space-y-8">
-                  <div className={`p-10 rounded-[3rem] border-2 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 transition-all ${syncInfo.isPaired ? 'bg-indigo-900 border-indigo-500 text-white shadow-2xl shadow-indigo-200' : 'bg-white border-slate-100'}`}>
+                  
+                  {/* EXPLANATORY ALERT */}
+                  {!syncInfo.isPaired && (
+                    <div className="p-8 bg-blue-50 border border-blue-100 rounded-[2.5rem] flex flex-col sm:flex-row gap-6 items-start sm:items-center">
+                        <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shrink-0 shadow-sm text-blue-600"><Info className="w-7 h-7" /></div>
+                        <div className="space-y-1">
+                            <h4 className="text-sm font-black text-blue-800 uppercase tracking-tight">Who needs a Firebase account?</h4>
+                            <p className="text-xs text-blue-600 leading-relaxed font-bold opacity-80 uppercase tracking-widest">Only the <span className="underline">School Administrator</span> needs to provide a Firebase config. All staff members simply join using the Sync Token, which automatically links them to the same cloud engine.</p>
+                        </div>
+                    </div>
+                  )}
+
+                  {/* CONFIG ENTRY SECTION (Only if not joined as a teacher) */}
+                  {(!syncInfo.isPaired || syncInfo.role === 'ADMIN') && (
+                      <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
+                          <div className="flex items-center gap-4 mb-4">
+                              <div className="p-3 bg-amber-50 text-amber-600 rounded-xl"><Database className="w-6 h-6" /></div>
+                              <div><h4 className="text-xl font-black uppercase tracking-tight leading-none">Administrator Setup</h4><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Paste your firebaseConfig object to host the school cloud</p></div>
+                          </div>
+                          <div className="relative">
+                            <textarea 
+                                value={firebaseConfigInput} 
+                                onChange={e => setFirebaseConfigInput(e.target.value)}
+                                placeholder='{ "apiKey": "...", "projectId": "...", ... }'
+                                className="w-full h-48 p-5 bg-slate-900 text-emerald-400 border border-slate-800 rounded-[2rem] font-mono text-[11px] focus:ring-4 focus:ring-blue-100 outline-none scrollbar-hide"
+                            />
+                            <div className="absolute top-4 right-4 p-2 bg-slate-800/50 rounded-lg text-slate-400"><Terminal className="w-4 h-4" /></div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                              <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline flex items-center gap-2"><ExternalLink className="w-4 h-4" /> Firebase Console</a>
+                              <button onClick={handleSaveFirebaseConfig} className="px-10 py-4 bg-blue-600 text-white rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all">Apply Configuration</button>
+                          </div>
+                      </div>
+                  )}
+
+                  <div className={`p-10 rounded-[3rem] border-2 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 transition-all ${syncInfo.isPaired ? 'bg-slate-900 border-indigo-500 text-white shadow-2xl' : 'bg-white border-slate-100'}`}>
                       <div className="flex items-center gap-8 relative z-10 text-center md:text-left flex-col md:flex-row">
                           <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center shadow-2xl transition-all ${syncInfo.isPaired ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
                               {syncInfo.connectionState === 'CONNECTED' ? <Wifi className="w-10 h-10 animate-pulse" /> : <WifiOff className="w-10 h-10" />}
                           </div>
                           <div>
                             <h3 className={`text-2xl font-black uppercase tracking-tighter leading-none mb-3 ${syncInfo.isPaired ? 'text-white' : 'text-slate-800'}`}>
-                                {syncInfo.isPaired ? `Cloud Database Active` : 'Standalone Mode'}
+                                {syncInfo.isPaired ? `Cloud Synced: ${syncInfo.role}` : 'Offline Mode'}
                             </h3>
                             <div className="flex flex-col gap-1">
                                 <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${syncInfo.isPaired ? 'text-indigo-300' : 'text-slate-400'}`}>
-                                    {syncInfo.isPaired ? `Connected as ${syncInfo.role} • School ID: ${syncInfo.schoolId?.slice(-8)}` : 'Link your data to enable real-time updates across multiple phones.'}
+                                    {syncInfo.isPaired ? `Project: ${firebaseConfig?.projectId || 'Synced'}` : 'Configure Firebase to enable multi-device synchronization.'}
                                 </p>
-                                {syncInfo.lastSync && (
-                                    <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Last Synced: {new Date(syncInfo.lastSync).toLocaleTimeString()}</p>
-                                )}
                             </div>
                           </div>
                       </div>
+                      {syncInfo.isPaired && (
+                          <div className="px-6 py-3 bg-white/10 rounded-2xl border border-white/20 flex items-center gap-3">
+                              <div className={`w-2.5 h-2.5 rounded-full ${syncInfo.connectionState === 'CONNECTED' ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]' : 'bg-slate-500 animate-pulse'}`}></div>
+                              <span className="text-[10px] font-black uppercase tracking-widest">{syncInfo.connectionState === 'CONNECTED' ? 'Live Stream Active' : 'Connecting...'}</span>
+                          </div>
+                      )}
                   </div>
 
                   {!syncInfo.isPaired ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-6 duration-500">
+                    <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-6 duration-500 ${!firebaseConfig ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
                         <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group">
-                            <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-8 text-blue-600 group-hover:scale-110 transition-transform shadow-inner"><Share2 className="w-8 h-8" /></div>
-                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Host Master Database</h4>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Become the central source of truth. All faculty devices will sync their attendance to your database in real-time.</p>
-                            <button onClick={() => { const token = generateSyncToken(); setGeneratedToken(token); }} className="w-full py-5 bg-slate-900 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-blue-600 shadow-xl transition-all">Enable Cloud Hosting</button>
+                            <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-8 text-blue-600 group-hover:scale-110 transition-transform shadow-inner"><Server className="w-8 h-8" /></div>
+                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Host School Cloud</h4>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Become the school's central database server. All staff devices will sync their attendance to your provided Firebase engine.</p>
+                            <button onClick={() => { const token = generateSyncToken(); setGeneratedToken(token); }} className="w-full py-5 bg-slate-900 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-blue-600 shadow-xl transition-all">Generate Staff Token</button>
                         </div>
                         <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group">
                             <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform shadow-inner"><Smartphone className="w-8 h-8" /></div>
-                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Connect to School ID</h4>
+                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Connect via Token</h4>
                             <div className="space-y-4">
-                                <textarea value={syncTokenInput} onChange={(e) => { setSyncTokenInput(e.target.value); setJoinError(null); }} placeholder="Paste Cloud Sync Token here..." className={`w-full h-32 p-4 bg-slate-50 border rounded-2xl text-[10px] font-mono break-all focus:ring-4 focus:ring-blue-100 outline-none transition-all ${joinError ? 'border-rose-400' : 'border-slate-200'}`} />
+                                <textarea value={syncTokenInput} onChange={(e) => { setSyncTokenInput(e.target.value); setJoinError(null); }} placeholder="Paste the token shared by your Admin..." className={`w-full h-32 p-4 bg-slate-50 border rounded-2xl text-[10px] font-mono break-all focus:ring-4 focus:ring-blue-100 outline-none transition-all ${joinError ? 'border-rose-400' : 'border-slate-200'}`} />
                                 {joinError && <div className="text-rose-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {joinError}</div>}
-                                <button disabled={isJoining} onClick={handleImportToken} className="w-full py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-indigo-700 shadow-xl transition-all disabled:opacity-30">Join Real-time Database</button>
+                                <button disabled={isJoining} onClick={handleImportToken} className="w-full py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-indigo-700 shadow-xl transition-all disabled:opacity-30">Join Real-time Sync</button>
                             </div>
                         </div>
                     </div>
                   ) : (
                     <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-8 text-center">
-                        <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6"><Check className="w-10 h-10" /></div>
-                        <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Database Synchronized</h4>
-                        <p className="text-xs font-bold text-slate-400 max-w-sm mx-auto">Your device is listening for real-time changes on the cloud. Changes made on other devices appear here instantly.</p>
-                        <button onClick={() => triggerConfirm("Disconnect Database?", "Stop real-time syncing and switch back to Standalone mode?", disconnectSync)} className="text-rose-600 text-[10px] font-black uppercase tracking-widest hover:underline flex items-center gap-2 mx-auto"><WifiOff className="w-4 h-4" /> Disconnect Database</button>
+                        <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-50"><Check className="w-10 h-10" /></div>
+                        <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Cloud Database Connected</h4>
+                        <p className="text-xs font-bold text-slate-400 max-w-sm mx-auto">This device is securely linked to the school's central database on Firebase. Updates appear here in real-time as they happen across the school.</p>
+                        <button onClick={() => triggerConfirm("Disconnect Cloud?", "Stop real-time syncing and switch back to Local-Only mode?", disconnectSync)} className="text-rose-600 text-[10px] font-black uppercase tracking-widest hover:underline flex items-center gap-2 mx-auto mt-4"><WifiOff className="w-4 h-4" /> Disconnect Database</button>
+                    </div>
+                  )}
+
+                  {!firebaseConfig && !syncInfo.isPaired && (
+                    <div className="p-10 bg-slate-100 rounded-[3rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-center gap-4 animate-pulse">
+                        <Database className="w-12 h-12 text-slate-300" />
+                        <div className="space-y-1">
+                            <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">Step 1: Admin Configuration Required</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest opacity-60">Paste your Firebase project keys above to unlock Cloud Synchronization.</p>
+                        </div>
                     </div>
                   )}
 
                   {generatedToken && (
                     <div className="bg-emerald-600 p-12 rounded-[4rem] text-white text-center shadow-2xl animate-in zoom-in duration-500">
-                        <h4 className="text-3xl font-black tracking-tighter uppercase mb-6">Cloud ID Ready</h4>
+                        <h4 className="text-3xl font-black tracking-tighter uppercase mb-6">Staff Token Generated</h4>
+                        <p className="text-xs text-emerald-100 font-bold uppercase tracking-widest mb-8 opacity-80">Share this token with your faculty. When they join, they will be automatically connected to your Firebase cloud project.</p>
                         <div className="bg-white/10 p-6 rounded-[2.5rem] border border-white/20 mb-8 max-h-48 overflow-y-auto scrollbar-hide">
                             <code className="text-[9px] font-mono break-all text-white/80">{generatedToken}</code>
                         </div>
                         <div className="flex gap-4 justify-center">
                             <button onClick={async () => {
-                                try { await navigator.share({ title: 'Mupini Cloud Token', text: generatedToken }); } 
+                                try { await navigator.share({ title: 'Mupini Staff Token', text: generatedToken }); } 
                                 catch (e) { navigator.clipboard.writeText(generatedToken); setCopyFeedback(true); setTimeout(() => setCopyFeedback(false), 2000); }
                             }} className="px-10 py-5 bg-white text-emerald-600 rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] flex items-center gap-3">
-                                <Share2 className="w-4 h-4" /> {copyFeedback ? 'Copied to Clipboard' : 'Share Cloud ID'}
+                                <Share2 className="w-4 h-4" /> {copyFeedback ? 'Copied to Clipboard' : 'Share with Faculty'}
                             </button>
                             <button onClick={() => setGeneratedToken(null)} className="px-8 py-5 bg-black/20 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em]">Close</button>
                         </div>

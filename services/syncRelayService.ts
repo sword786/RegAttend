@@ -1,60 +1,75 @@
 
 /**
  * SyncRelayService
- * Enables cross-device state synchronization using a public signaling relay.
- * This transmits the actual school data between paired devices.
+ * Enables ultra-fast differential synchronization between paired devices.
+ * Instead of sending the full database, it sends granular "Action" packets.
  */
 
 const RELAY_URL = 'https://ntfy.sh';
 
+export type SyncActionType = 
+  | 'ATTENDANCE_UPDATE' 
+  | 'SCHEDULE_UPDATE' 
+  | 'STUDENT_CHANGE' 
+  | 'ENTITY_CHANGE' 
+  | 'SCHOOL_CONFIG_UPDATE';
+
+export interface SyncPacket {
+  type: SyncActionType;
+  senderId: string;
+  payload: any;
+  timestamp: number;
+}
+
 export const SyncRelayService = {
   /**
-   * Broadcast the entire state to all paired devices
+   * Broadcast a granular change to the cloud relay.
+   * Granular changes are small and fit easily within relay size limits (4KB).
    */
-  async broadcastState(schoolId: string, senderId: string, state: any) {
+  async broadcastChange(schoolId: string, senderId: string, type: SyncActionType, payload: any) {
     if (!schoolId || !senderId) return;
     
+    const packet: SyncPacket = {
+      type,
+      senderId,
+      payload,
+      timestamp: Date.now()
+    };
+
     try {
-      // We send the data as a JSON string in the body
       await fetch(`${RELAY_URL}/mupini_${schoolId}`, {
         method: 'POST',
-        body: JSON.stringify({
-          type: 'FULL_STATE_SYNC',
-          senderId,
-          payload: state,
-          timestamp: Date.now()
-        }),
+        body: JSON.stringify(packet),
         headers: {
-          'Title': 'Mupini Sync Update',
-          'Priority': 'default'
+          'Title': 'Mupini Live Update',
+          'Priority': 'high'
         }
       });
     } catch (e) {
-      console.warn("Relay sync failed", e);
+      console.warn("Relay broadcast failed", e);
     }
   },
 
   /**
-   * Subscribe to state updates for a specific school
+   * Subscribe to real-time differential updates.
    */
-  subscribe(schoolId: string, onMessage: (data: any) => void) {
+  subscribe(schoolId: string, onAction: (packet: SyncPacket) => void) {
     if (!schoolId) return () => {};
 
-    // Use SSE to receive real-time POST messages from the relay
     const eventSource = new EventSource(`${RELAY_URL}/mupini_${schoolId}/sse`);
     
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data.message) {
-          const payload = JSON.parse(data.message);
-          // Only process synchronization messages
-          if (payload.type === 'FULL_STATE_SYNC') {
-            onMessage(payload);
+          const packet: SyncPacket = JSON.parse(data.message);
+          // Standard check to ensure it's a valid protocol packet
+          if (packet.type && packet.senderId && packet.payload !== undefined) {
+            onAction(packet);
           }
         }
       } catch (e) {
-        // Not a protocol message or malformed JSON, ignore
+        // Ignore non-protocol or malformed messages
       }
     };
 
