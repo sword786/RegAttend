@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Sidebar } from './components/Sidebar';
 import { TimetableGrid } from './components/TimetableGrid';
 import { AttendanceModal } from './components/AttendanceModal';
@@ -235,6 +236,7 @@ const App: React.FC = () => {
   return (
     <DataProvider>
       <DashboardContent />
+      <SpeedInsights />
     </DataProvider>
   );
 };
