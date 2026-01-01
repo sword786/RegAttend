@@ -85,3 +85,17 @@ export const createEmptySchedule = (): WeeklySchedule => ({
   'Wed': {},
   'Thu': {}
 });
+
+// Fix for window.aistudio build error
+// Defining AIStudio globally and using it in Window ensures compatibility with the platform's pre-defined types.
+declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
+  interface Window {
+    // Using readonly to match the probable modifier in the host environment.
+    readonly aistudio: AIStudio;
+  }
+}

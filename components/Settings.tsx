@@ -9,7 +9,6 @@ import {
   Cloud, CloudOff, RefreshCw, Smartphone, Copy, Monitor, ShieldCheck, UserMinus, Zap, BookOpen, Share2, ClipboardList,
   ChevronDown, Wifi, WifiOff
 } from 'lucide-react';
-// Removed non-existent PairedDevice import which was causing a build error
 import { EntityProfile, TimeSlot } from '../types';
 
 type SettingsTab = 'menu' | 'general' | 'timetable' | 'teachers' | 'classes' | 'students' | 'import' | 'sync';
@@ -30,19 +29,16 @@ export const Settings: React.FC = () => {
   const [hasCustomKey, setHasCustomKey] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   
-  // Portable Sync States
   const [syncTokenInput, setSyncTokenInput] = useState('');
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
 
-  // AI Import Staging
   const [teacherFile, setTeacherFile] = useState<File | null>(null);
   const [classFile, setClassFile] = useState<File | null>(null);
   const teacherFileInputRef = useRef<HTMLInputElement>(null);
   const classFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Management State
   const [newEntityName, setNewEntityName] = useState('');
   const [newEntityCode, setNewEntityCode] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -68,8 +64,7 @@ export const Settings: React.FC = () => {
 
   useEffect(() => {
     const checkKey = async () => {
-        // @ts-ignore
-        if (window.aistudio && window.aistudio.hasSelectedApiKey) {
+        if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
           const exists = await window.aistudio.hasSelectedApiKey();
           setHasCustomKey(exists);
         }
@@ -85,9 +80,10 @@ export const Settings: React.FC = () => {
 
   const handleSelectKey = async () => {
     try {
-      // @ts-ignore
-      await window.aistudio.openSelectKey();
-      setHasCustomKey(true);
+      if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+        await window.aistudio.openSelectKey();
+        setHasCustomKey(true);
+      }
     } catch (e) { console.error("Key selection failed", e); }
   };
 
