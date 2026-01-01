@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, Trash2, Save, AlertCircle, Layers, Users, GraduationCap, MapPin } from 'lucide-react';
+import { X, Trash2, Save, AlertCircle, Layers, Users, GraduationCap, MapPin, Pencil, User, ChevronDown, BookOpen } from 'lucide-react';
 import { TimetableEntry } from '../types';
 import { useData } from '../contexts/DataContext';
 
@@ -186,5 +186,3 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
     </div>
   );
 };
-
-import { Pencil, User, ChevronDown, BookOpen } from 'lucide-react';

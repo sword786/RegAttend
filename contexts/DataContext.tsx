@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { EntityProfile, Student, TimeSlot, TimetableEntry, AttendanceRecord, DayOfWeek, AiImportStatus, AiImportResult, SyncMetadata, PairedDevice } from '../types';
+import { EntityProfile, Student, TimeSlot, TimetableEntry, AttendanceRecord, DayOfWeek, AiImportStatus, AiImportResult, SyncMetadata } from '../types';
 import { DEFAULT_DATA, DEFAULT_STUDENTS, DEFAULT_TIME_SLOTS } from '../constants';
 import { processTimetableImport } from '../services/geminiService';
 
@@ -111,7 +111,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   const generateSyncToken = () => {
     const payload = {
-      v: "1.0",
+      v: "1.1",
       schoolName,
       academicYear,
       entities,
@@ -120,7 +120,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       timestamp: Date.now()
     };
     
-    // Set local state to Admin
     if (syncInfo.role !== 'ADMIN') {
         setSyncInfo({
             isPaired: true,
@@ -132,16 +131,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
     }
 
-    return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    const json = JSON.stringify(payload);
+    // Modern robust Base64 encoding for UTF-8 (essential for APKs)
+    const bytes = new TextEncoder().encode(json);
+    let binString = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binString += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binString);
   };
 
   const importSyncToken = async (token: string): Promise<boolean> => {
     try {
-      const decoded = JSON.parse(decodeURIComponent(escape(atob(token))));
+      const binString = atob(token);
+      const bytes = new Uint8Array(binString.length);
+      for (let i = 0; i < binString.length; i++) {
+          bytes[i] = binString.charCodeAt(i);
+      }
+      const json = new TextDecoder().decode(bytes);
+      const decoded = JSON.parse(json);
       
       if (!decoded.schoolName || !decoded.entities) return false;
 
-      // Overwrite local state with Master state
+      // Update state
       setSchoolName(decoded.schoolName);
       setAcademicYear(decoded.academicYear || '2025');
       setEntities(decoded.entities);
@@ -153,9 +165,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         pairCode: "PAIRED",
         role: 'TEACHER',
         lastSync: new Date().toISOString(),
-        schoolId: `sch-${decoded.timestamp}`,
+        schoolId: decoded.masterId || `sch-${decoded.timestamp}`,
         deviceId: `staff-${Date.now()}`,
-        masterSourceId: `sch-${decoded.timestamp}`
+        masterSourceId: decoded.masterId || `sch-${decoded.timestamp}`
       });
 
       return true;

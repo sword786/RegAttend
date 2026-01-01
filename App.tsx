@@ -14,7 +14,8 @@ import { TimetableEntry } from './types';
 import { DataProvider, useData } from './contexts/DataContext';
 
 const DashboardContent: React.FC = () => {
-  const { entities, updateSchedule } = useData();
+  // Fix: Destructured schoolName from useData hook to make it available in the scope
+  const { entities, updateSchedule, syncInfo, schoolName } = useData();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -30,11 +31,12 @@ const DashboardContent: React.FC = () => {
     isOpen: boolean; day: string; period: number; entry: TimetableEntry | null;
   }>({ isOpen: false, day: '', period: 0, entry: null });
 
-  // Handle default selection when tabs change
+  // Handle default selection when tabs change or entities are imported
   useEffect(() => {
     if ((activeTab === 'classes' || activeTab === 'teachers') && entities.length > 0) {
       const type = activeTab === 'classes' ? 'CLASS' : 'TEACHER';
       const filtered = entities.filter(e => e.type === type);
+      
       const currentSelectionValid = filtered.find(e => e.id === selectedEntityId);
       
       if (!currentSelectionValid && filtered.length > 0) {
@@ -44,6 +46,12 @@ const DashboardContent: React.FC = () => {
       }
     }
   }, [activeTab, entities, selectedEntityId]);
+
+  // Force reset selection on tab change to ensure first-profile auto-focus
+  const handleTabChange = (newTab: string) => {
+    setActiveTab(newTab);
+    setSelectedEntityId(''); // Reset selection to trigger auto-select effect
+  };
 
   const handleSlotClick = (day: string, period: number, entry: TimetableEntry | null) => {
     if (isEditMode) {
@@ -86,7 +94,6 @@ const DashboardContent: React.FC = () => {
         
         return (
           <div className="flex flex-col gap-6">
-             {/* Header Controls */}
              <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4 bg-white p-3 rounded-[1.5rem] border border-slate-100 shadow-sm">
                 <div className="flex-1 relative">
                     <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
@@ -99,7 +106,6 @@ const DashboardContent: React.FC = () => {
                     />
                 </div>
                 
-                {/* Mobile Dropdown Selector (Restored Feature) */}
                 <div className="md:hidden relative">
                     <select 
                         value={selectedEntityId}
@@ -124,7 +130,6 @@ const DashboardContent: React.FC = () => {
              </div>
 
              <div className="flex gap-6 items-start">
-                {/* Desktop Sidebar List */}
                 <div className="w-72 bg-white border border-slate-100 rounded-[2rem] shadow-sm hidden md:flex flex-col shrink-0 self-stretch">
                     <div className="p-5 border-b border-slate-50 bg-slate-50/50 rounded-t-[2rem]">
                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{activeTab} List</span>
@@ -143,14 +148,13 @@ const DashboardContent: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Main Schedule Display */}
                 <div className="flex-1 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden p-1">
                     {selectedEntity ? (
                         <TimetableGrid data={selectedEntity} onSlotClick={handleSlotClick} isEditing={isEditMode} />
                     ) : (
                         <div className="py-32 flex flex-col items-center justify-center text-center px-10">
                              <LayoutGrid className="w-16 h-16 text-slate-100 mb-6" />
-                             <p className="text-[11px] font-black text-slate-300 uppercase tracking-[0.25em]">Select an profile to view schedule</p>
+                             <p className="text-[11px] font-black text-slate-300 uppercase tracking-[0.25em]">Select a profile to view schedule</p>
                         </div>
                     )}
                 </div>
@@ -179,7 +183,7 @@ const DashboardContent: React.FC = () => {
 
       <Sidebar 
         activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
+        setActiveTab={handleTabChange} 
         isMobileOpen={isMobileOpen} 
         setIsMobileOpen={setIsMobileOpen} 
       />
@@ -196,13 +200,12 @@ const DashboardContent: React.FC = () => {
                 </h1>
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Mupini Connect • 2025 Academic System</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{schoolName} • {syncInfo.role === 'TEACHER' ? 'Paired System' : 'Academic Master'}</p>
                 </div>
               </div>
            </div>
         </header>
 
-        {/* This main container handles all vertical scrolling for ALL pages */}
         <div className="flex-1 overflow-y-auto scrollbar-hide p-6 sm:p-10 bg-slate-50/20">
            <div className="max-w-7xl mx-auto">
               {renderActiveTab()}
