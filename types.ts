@@ -76,3 +76,12 @@ export interface SyncMetadata {
   connectionState: SyncConnectionState;
   masterSourceId?: string;
 }
+
+export const createEmptySchedule = (): WeeklySchedule => ({
+  'Sat': {},
+  'Sun': {},
+  'Mon': {},
+  'Tue': {},
+  'Wed': {},
+  'Thu': {}
+});

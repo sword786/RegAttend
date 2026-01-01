@@ -1,9 +1,18 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Wand2, CheckCircle2 } from 'lucide-react';
+import { Send, Bot, User, Wand2 } from 'lucide-react';
 import { generateAiResponseWithTools } from '../services/geminiService';
-import { ChatMessage } from '../types';
+import { ChatMessage, DayOfWeek, createEmptySchedule } from '../types';
 import { useData } from '../contexts/DataContext';
+
+const DAY_MAP: Record<string, DayOfWeek> = {
+    'monday': 'Mon', 'mon': 'Mon',
+    'tuesday': 'Tue', 'tue': 'Tue',
+    'wednesday': 'Wed', 'wed': 'Wed',
+    'thursday': 'Thu', 'thu': 'Thu',
+    'saturday': 'Sat', 'sat': 'Sat',
+    'sunday': 'Sun', 'sun': 'Sun'
+};
 
 export const Assistant: React.FC = () => {
   const data = useData();
@@ -30,7 +39,6 @@ export const Assistant: React.FC = () => {
     setLoading(true);
 
     try {
-        // Convert history to Gemini format
         const history = messages.slice(1).map(m => ({
             role: m.role,
             parts: [{ text: m.text }]
@@ -38,12 +46,9 @@ export const Assistant: React.FC = () => {
 
         const response = await generateAiResponseWithTools(userText, history, data);
         
-        if (response.functionCalls) {
-            const toolResults = [];
+        if (response.functionCalls && response.functionCalls.length > 0) {
             for (const call of response.functionCalls) {
-                let result = "Action performed successfully.";
                 const args = call.args as any;
-
                 try {
                     switch (call.name) {
                         case 'update_school_settings':
@@ -55,12 +60,15 @@ export const Assistant: React.FC = () => {
                                 data.addEntity({
                                     id: `${args.type.toLowerCase()}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                                     name: args.name,
-                                    shortCode: args.shortCode,
-                                    type: args.type as any,
-                                    schedule: {}
+                                    shortCode: args.shortCode || args.name.substring(0,3).toUpperCase(),
+                                    type: args.type as 'TEACHER' | 'CLASS',
+                                    schedule: createEmptySchedule()
                                 });
                             } else if (args.action === 'update' && args.id) {
-                                data.updateEntity(args.id, { name: args.name, shortCode: args.shortCode });
+                                data.updateEntity(args.id, { 
+                                    name: args.name, 
+                                    shortCode: args.shortCode 
+                                });
                             } else if (args.action === 'delete' && args.id) {
                                 data.deleteEntity(args.id);
                             }
@@ -78,33 +86,30 @@ export const Assistant: React.FC = () => {
                             }
                             break;
                         case 'set_timetable_slot':
-                            data.updateSchedule(args.entityId, args.day, args.period, {
-                                subject: args.subject,
+                            const mappedDay = DAY_MAP[args.day.toLowerCase()] || 'Mon';
+                            data.updateSchedule(args.entityId, mappedDay, Number(args.period), {
+                                subject: args.subject.toUpperCase(),
                                 room: args.room,
                                 teacherOrClass: args.teacherOrClass
                             });
                             break;
-                        default:
-                            result = "Unknown tool.";
                     }
                 } catch (e) {
-                    result = `Error executing action: ${e}`;
+                    console.error(`Error executing action ${call.name}:`, e);
                 }
-                toolResults.push(result);
             }
 
-            // Optional: You could call the model again with the results, 
-            // but for simplicity we'll just confirm the result based on the text part if present
             if (response.text) {
                 setMessages(prev => [...prev, { role: 'model', text: response.text!, timestamp: new Date() }]);
             } else {
-                setMessages(prev => [...prev, { role: 'model', text: "I have updated the settings for you.", timestamp: new Date() }]);
+                setMessages(prev => [...prev, { role: 'model', text: "I've applied those changes to the system for you.", timestamp: new Date() }]);
             }
         } else {
-            setMessages(prev => [...prev, { role: 'model', text: response.text || "I couldn't process that request.", timestamp: new Date() }]);
+            setMessages(prev => [...prev, { role: 'model', text: response.text || "I'm sorry, I couldn't process that request.", timestamp: new Date() }]);
         }
     } catch (error) {
-        setMessages(prev => [...prev, { role: 'model', text: "Something went wrong while processing your request.", timestamp: new Date() }]);
+        console.error("Assistant error:", error);
+        setMessages(prev => [...prev, { role: 'model', text: "I encountered an error while trying to process your request. Please check your connection and try again.", timestamp: new Date() }]);
     } finally {
         setLoading(false);
     }
@@ -167,7 +172,7 @@ export const Assistant: React.FC = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="e.g. 'Add a new teacher named John Doe' or 'Change school name'..."
+            placeholder="e.g. 'Add a new teacher named John'..."
             className="w-full pl-6 pr-14 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500/30 transition-all placeholder-slate-400"
           />
           <button 
