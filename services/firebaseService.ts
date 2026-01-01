@@ -1,15 +1,17 @@
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, update, off, onConnect, onDisconnect, goOnline, goOffline } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { initializeApp, FirebaseApp } from "firebase/app";
+import { getDatabase, ref, set, onValue, update, off, Database, DataSnapshot } from "firebase/database";
 
-let db: any = null;
-let connectedRef: any = null;
+let app: FirebaseApp | null = null;
+let db: Database | null = null;
 
 export const initFirebase = (config: any) => {
   try {
-    // If already initialized, we might need to re-init if config changed
-    const app = initializeApp(config);
-    db = getDatabase(app);
+    // If already initialized, avoid multiple apps error
+    if (!app) {
+      app = initializeApp(config);
+      db = getDatabase(app);
+    }
     return true;
   } catch (e) {
     console.error("Firebase Init Error:", e);
@@ -24,7 +26,7 @@ export const FirebaseSync = {
   monitorConnection(onStatusChange: (connected: boolean) => void) {
     if (!db) return () => {};
     const statusRef = ref(db, ".info/connected");
-    const unsubscribe = onValue(statusRef, (snap) => {
+    const unsubscribe = onValue(statusRef, (snap: DataSnapshot) => {
       onStatusChange(snap.val() === true);
     });
     return () => off(statusRef, "value", unsubscribe);
@@ -67,7 +69,7 @@ export const FirebaseSync = {
     if (!db || !schoolId) return () => {};
     const schoolRef = ref(db, `schools/${schoolId}`);
     
-    const unsubscribe = onValue(schoolRef, (snapshot) => {
+    const unsubscribe = onValue(schoolRef, (snapshot: DataSnapshot) => {
       const data = snapshot.val();
       if (data) {
         onUpdate(data);
