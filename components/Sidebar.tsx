@@ -1,8 +1,7 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { LayoutDashboard, Users, GraduationCap, Calendar, MessageSquare, Settings, Cloud, Zap } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
-import { PasswordModal } from './PasswordModal';
 
 interface SidebarProps {
   activeTab: string;
@@ -13,7 +12,6 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen }) => {
   const { schoolName, syncInfo } = useData();
-  const [isPasswordOpen, setIsPasswordOpen] = useState(false);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -25,24 +23,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
   ];
 
   const handleNavClick = (id: string) => {
-    if (id === 'settings') {
-      setIsMobileOpen(false);
-      setIsPasswordOpen(true);
-    } else {
-      setActiveTab(id);
-      setIsMobileOpen(false);
-    }
+    setActiveTab(id);
+    setIsMobileOpen(false);
   };
 
   return (
     <>
-      <PasswordModal 
-        isOpen={isPasswordOpen}
-        onClose={() => setIsPasswordOpen(false)}
-        onSuccess={() => setActiveTab('settings')}
-        title="Admin Settings"
-      />
-
       {/* Mobile Overlay */}
       {isMobileOpen && (
         <div 

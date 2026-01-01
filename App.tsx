@@ -8,19 +8,16 @@ import { Assistant } from './components/Assistant';
 import { Settings } from './components/Settings';
 import { AttendanceReport } from './components/AttendanceReport';
 import { DashboardHome } from './components/DashboardHome';
-import { PasswordModal } from './components/PasswordModal';
 import { Menu, Search, Pencil, Eye, LayoutGrid, ChevronDown } from 'lucide-react';
 import { TimetableEntry } from './types';
 import { DataProvider, useData } from './contexts/DataContext';
 
 const DashboardContent: React.FC = () => {
-  // Fix: Destructured schoolName from useData hook to make it available in the scope
   const { entities, updateSchedule, syncInfo, schoolName } = useData();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditMode, setIsEditMode] = useState(false);
-  const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
 
   const [attendanceModal, setAttendanceModal] = useState<{
@@ -47,10 +44,10 @@ const DashboardContent: React.FC = () => {
     }
   }, [activeTab, entities, selectedEntityId]);
 
-  // Force reset selection on tab change to ensure first-profile auto-focus
   const handleTabChange = (newTab: string) => {
     setActiveTab(newTab);
-    setSelectedEntityId(''); // Reset selection to trigger auto-select effect
+    setSelectedEntityId('');
+    setIsMobileOpen(false);
   };
 
   const handleSlotClick = (day: string, period: number, entry: TimetableEntry | null) => {
@@ -123,7 +120,7 @@ const DashboardContent: React.FC = () => {
                    <button onClick={() => setIsEditMode(false)} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest ${!isEditMode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
                      <Eye className="w-4 h-4" /> View
                    </button>
-                   <button onClick={() => isEditMode ? setIsEditMode(false) : setIsPasswordOpen(true)} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest ${isEditMode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                   <button onClick={() => setIsEditMode(true)} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest ${isEditMode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
                      <Pencil className="w-4 h-4" /> Edit
                    </button>
                 </div>
@@ -174,13 +171,6 @@ const DashboardContent: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-[#f8fafc] overflow-hidden text-gray-900 font-sans">
-      <PasswordModal 
-        isOpen={isPasswordOpen} 
-        onClose={() => setIsPasswordOpen(false)} 
-        onSuccess={() => setIsEditMode(true)}
-        title="Admin Authentication"
-      />
-
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={handleTabChange} 
