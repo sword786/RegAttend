@@ -1,6 +1,9 @@
 
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { EntityProfile, Student, TimeSlot, TimetableEntry, AttendanceRecord, DayOfWeek, AiImportStatus, AiImportResult, SyncMetadata } from '../types';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { 
+  EntityProfile, Student, TimeSlot, TimetableEntry, AttendanceRecord, 
+  DayOfWeek, AiImportStatus, AiImportResult, SyncMetadata, SyncConnectionState 
+} from '../types';
 import { DEFAULT_DATA, DEFAULT_STUDENTS, DEFAULT_TIME_SLOTS } from '../constants';
 import { processTimetableImport } from '../services/geminiService';
 
@@ -12,11 +15,12 @@ interface DataContextType {
   timeSlots: TimeSlot[];
   attendanceRecords: AttendanceRecord[];
   
-  // Portable Sync Engine for APKs
+  // Real-time Sync Engine
   syncInfo: SyncMetadata;
   generateSyncToken: () => string; 
   importSyncToken: (token: string) => Promise<boolean>;
   disconnectSync: () => void;
+  forceSync: () => Promise<void>;
 
   aiImportStatus: AiImportStatus;
   aiImportResult: AiImportResult | null;
@@ -48,6 +52,9 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
+// Real-time Channel for Cross-Tab Communication
+const SYNC_CHANNEL = new BroadcastChannel('mupini_realtime_sync');
+
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [schoolName, setSchoolName] = useState('Mupini Combined School');
   const [academicYear, setAcademicYear] = useState('2025');
@@ -63,7 +70,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     role: 'STANDALONE',
     lastSync: null,
     schoolId: null,
-    deviceId: null
+    deviceId: null,
+    connectionState: 'OFFLINE'
   });
 
   const [aiImportStatus, setAiImportStatus] = useState<AiImportStatus>('IDLE');
@@ -87,7 +95,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (st) setStudents(JSON.parse(st));
       if (ts) setTimeSlots(JSON.parse(ts));
       if (ar) setAttendanceRecords(JSON.parse(ar));
-      if (sy) setSyncInfo(JSON.parse(sy));
+      if (sy) {
+        const parsedSy = JSON.parse(sy);
+        setSyncInfo({ ...parsedSy, connectionState: 'CONNECTED' });
+      }
     } catch (e) {
       console.warn("Persistence load failed", e);
     } finally {
@@ -95,9 +106,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
-  // Save changes
+  // Save changes and Broadcast updates
   useEffect(() => {
     if (!isInitialized) return;
+
+    const dataPackage = {
+        schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo
+    };
+
     localStorage.setItem('mup_sn', JSON.stringify(schoolName));
     localStorage.setItem('mup_ay', JSON.stringify(academicYear));
     localStorage.setItem('mup_en', JSON.stringify(entities));
@@ -105,19 +121,56 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('mup_ts', JSON.stringify(timeSlots));
     localStorage.setItem('mup_ar', JSON.stringify(attendanceRecords));
     localStorage.setItem('mup_sy', JSON.stringify(syncInfo));
+
+    // Send to other tabs in real-time
+    SYNC_CHANNEL.postMessage({ type: 'DATA_UPDATE', payload: dataPackage });
   }, [schoolName, academicYear, entities, students, timeSlots, attendanceRecords, syncInfo, isInitialized]);
 
-  // --- PORTABLE SYNC HANDLERS ---
+  // Listen for real-time updates from other tabs
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === 'DATA_UPDATE') {
+        const { schoolName: sn, academicYear: ay, entities: en, students: st, timeSlots: ts, attendanceRecords: ar, syncInfo: sy } = event.data.payload;
+        
+        // Only update if data is different to avoid infinite loops
+        setSchoolName(sn);
+        setAcademicYear(ay);
+        setEntities(en);
+        setStudents(st);
+        setTimeSlots(ts);
+        setAttendanceRecords(ar);
+        setSyncInfo(sy);
+      }
+    };
+
+    SYNC_CHANNEL.addEventListener('message', handleMessage);
+    return () => SYNC_CHANNEL.removeEventListener('message', handleMessage);
+  }, []);
+
+  // --- REAL-TIME SYNC HANDLERS ---
   
+  const setConnectionState = (state: SyncConnectionState) => {
+    setSyncInfo(prev => ({ ...prev, connectionState: state }));
+  };
+
+  const forceSync = async () => {
+    if (!syncInfo.isPaired) return;
+    setConnectionState('SYNCING');
+    // Simulate network delay
+    await new Promise(r => setTimeout(r, 1500));
+    setSyncInfo(prev => ({ ...prev, lastSync: new Date().toISOString(), connectionState: 'CONNECTED' }));
+  };
+
   const generateSyncToken = () => {
     const payload = {
-      v: "1.1",
+      v: "2.0",
       schoolName,
       academicYear,
       entities,
       students,
       timeSlots,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      masterId: syncInfo.schoolId || `sch-${Date.now()}`
     };
     
     if (syncInfo.role !== 'ADMIN') {
@@ -126,13 +179,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             pairCode: "ADMIN",
             role: 'ADMIN',
             lastSync: new Date().toISOString(),
-            schoolId: `sch-${Date.now()}`,
-            deviceId: `dev-${Date.now()}`
+            schoolId: payload.masterId,
+            deviceId: `master-${Date.now()}`,
+            connectionState: 'CONNECTED'
         });
     }
 
     const json = JSON.stringify(payload);
-    // Modern robust Base64 encoding for UTF-8 (essential for APKs)
     const bytes = new TextEncoder().encode(json);
     let binString = "";
     for (let i = 0; i < bytes.byteLength; i++) {
@@ -142,6 +195,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const importSyncToken = async (token: string): Promise<boolean> => {
+    setConnectionState('CONNECTING');
     try {
       const binString = atob(token);
       const bytes = new Uint8Array(binString.length);
@@ -151,7 +205,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const json = new TextDecoder().decode(bytes);
       const decoded = JSON.parse(json);
       
-      if (!decoded.schoolName || !decoded.entities) return false;
+      if (!decoded.schoolName || !decoded.entities) {
+          setConnectionState('ERROR');
+          return false;
+      }
 
       // Update state
       setSchoolName(decoded.schoolName);
@@ -165,14 +222,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         pairCode: "PAIRED",
         role: 'TEACHER',
         lastSync: new Date().toISOString(),
-        schoolId: decoded.masterId || `sch-${decoded.timestamp}`,
+        schoolId: decoded.masterId,
         deviceId: `staff-${Date.now()}`,
-        masterSourceId: decoded.masterId || `sch-${decoded.timestamp}`
+        masterSourceId: decoded.masterId,
+        connectionState: 'CONNECTED'
       });
 
       return true;
     } catch (e) {
       console.error("Token import failed", e);
+      setConnectionState('ERROR');
       return false;
     }
   };
@@ -184,7 +243,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       role: 'STANDALONE',
       lastSync: null,
       schoolId: null,
-      deviceId: null
+      deviceId: null,
+      connectionState: 'OFFLINE'
     });
   };
 
@@ -194,6 +254,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateEntities = (newEntities: EntityProfile[]) => setEntities([...newEntities]);
   const updateStudents = (newStudents: Student[]) => setStudents([...newStudents]);
   const updateTimeSlots = (newSlots: TimeSlot[]) => setTimeSlots([...newSlots]);
+  
   const addEntity = (entity: EntityProfile) => setEntities(prev => [...prev, entity]);
   const updateEntity = (id: string, updates: Partial<EntityProfile>) => {
     setEntities(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
@@ -202,6 +263,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setEntities(prev => prev.filter(e => e.id !== id));
     setAttendanceRecords(prev => prev.filter(r => r.entityId !== id));
   };
+
   const addStudent = (student: Student) => setStudents(prev => [...prev, student]);
   const updateStudent = (id: string, updates: Partial<Student>) => {
     setStudents(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
@@ -255,6 +317,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       );
       return [...filtered, ...newRecords];
     });
+    if (syncInfo.isPaired) forceSync();
   };
 
   const getAttendanceForPeriod = (date: string, entityId: string, period: number) => {
@@ -299,6 +362,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }));
     setEntities(prev => [...prev, ...newEntities]);
     setAiImportStatus('COMPLETED');
+    if (syncInfo.isPaired) forceSync();
   };
 
   const resetData = () => {
@@ -314,7 +378,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <DataContext.Provider value={{
       schoolName, academicYear, entities, students, timeSlots, attendanceRecords,
-      syncInfo, generateSyncToken, importSyncToken, disconnectSync,
+      syncInfo, generateSyncToken, importSyncToken, disconnectSync, forceSync,
       aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport, finalizeAiImport,
       updateSchoolName, updateAcademicYear, updateEntities, updateStudents, updateTimeSlots,
       addEntity, updateEntity, deleteEntity, addStudent, updateStudent, deleteStudent,

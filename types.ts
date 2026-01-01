@@ -63,13 +63,8 @@ export interface AiImportResult {
   rawTextResponse?: string;
 }
 
-// PORTABLE SYNC TYPES
-export interface PairedDevice {
-  deviceId: string;
-  deviceName: string;
-  role: 'ADMIN' | 'TEACHER';
-  lastActive: string;
-}
+// REAL-TIME SYNC TYPES
+export type SyncConnectionState = 'OFFLINE' | 'CONNECTING' | 'CONNECTED' | 'SYNCING' | 'ERROR';
 
 export interface SyncMetadata {
   isPaired: boolean;
@@ -78,5 +73,6 @@ export interface SyncMetadata {
   lastSync: string | null;
   schoolId: string | null;
   deviceId: string | null;
-  masterSourceId?: string; // Tracks which master this teacher belongs to
+  connectionState: SyncConnectionState;
+  masterSourceId?: string;
 }

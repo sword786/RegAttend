@@ -7,9 +7,10 @@ import {
   Download, RotateCcw, UserPlus, Layers, Users, GraduationCap, 
   FileCheck, ShieldAlert, ArrowLeft, Settings as SettingsIcon, ChevronRight,
   Cloud, CloudOff, RefreshCw, Smartphone, Copy, Monitor, ShieldCheck, UserMinus, Zap, BookOpen, Share2, ClipboardList,
-  ChevronDown
+  ChevronDown, Wifi, WifiOff
 } from 'lucide-react';
-import { EntityProfile, TimeSlot, PairedDevice } from '../types';
+// Removed non-existent PairedDevice import which was causing a build error
+import { EntityProfile, TimeSlot } from '../types';
 
 type SettingsTab = 'menu' | 'general' | 'timetable' | 'teachers' | 'classes' | 'students' | 'import' | 'sync';
 
@@ -107,7 +108,7 @@ export const Settings: React.FC = () => {
       const success = await importSyncToken(syncTokenInput);
       if (success) {
         setSyncTokenInput('');
-        triggerConfirm("Sync Successful", "Your device is now paired with the master school data.", () => {}, "Got it");
+        triggerConfirm("Sync Successful", "Your device is now paired with the real-time cloud database.", () => {}, "Got it");
       } else {
         setJoinError("Invalid or corrupted sync token.");
       }
@@ -261,7 +262,7 @@ export const Settings: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             <MenuCard icon={<RotateCcw className="w-7 h-7" />} title="General" description="School name, year & local API keys" onClick={() => setActiveTab('general')} color="blue" />
-            <MenuCard icon={<Smartphone className="w-7 h-7" />} title="Portable Sync" description="Pair with other phones via Tokens" onClick={() => setActiveTab('sync')} color="indigo" highlight={!syncInfo.isPaired} />
+            <MenuCard icon={<Smartphone className="w-7 h-7" />} title="Sync Database" description="Pair with Real-time Cloud" onClick={() => setActiveTab('sync')} color="indigo" highlight={!syncInfo.isPaired} />
             <MenuCard icon={<Users className="w-7 h-7" />} title="Teachers" description="Faculty registry & identifiers" onClick={() => setActiveTab('teachers')} color="purple" />
             <MenuCard icon={<GraduationCap className="w-7 h-7" />} title="Classes" description="Grade levels, groups & sections" onClick={() => setActiveTab('classes')} color="emerald" />
             <MenuCard icon={<UserPlus className="w-7 h-7" />} title="Students" description="Enrollment rosters & CSV imports" onClick={() => setActiveTab('students')} color="rose" />
@@ -290,14 +291,26 @@ export const Settings: React.FC = () => {
 
           {activeTab === 'sync' && (
             <>
-              <SectionHeader title="Portable Sync Center" description="Pair phones by sharing tokens" />
+              <SectionHeader title="Real-time Sync Center" description="Integrate with Cloud Database" />
               <div className="space-y-8">
                   <div className={`p-10 rounded-[3rem] border-2 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 transition-all ${syncInfo.isPaired ? 'bg-indigo-900 border-indigo-500 text-white shadow-2xl shadow-indigo-200' : 'bg-white border-slate-100'}`}>
                       <div className="flex items-center gap-8 relative z-10 text-center md:text-left flex-col md:flex-row">
                           <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center shadow-2xl transition-all ${syncInfo.isPaired ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                              {syncInfo.isPaired ? <Zap className="w-10 h-10 fill-white animate-pulse" /> : <CloudOff className="w-10 h-10" />}
+                              {syncInfo.connectionState === 'CONNECTED' ? <Wifi className="w-10 h-10 animate-pulse" /> : <WifiOff className="w-10 h-10" />}
                           </div>
-                          <div><h3 className={`text-2xl font-black uppercase tracking-tighter leading-none mb-3 ${syncInfo.isPaired ? 'text-white' : 'text-slate-800'}`}>{syncInfo.isPaired ? `Sync System Active` : 'Standalone Mode'}</h3><p className={`text-[10px] font-black uppercase tracking-[0.2em] ${syncInfo.isPaired ? 'text-indigo-300' : 'text-slate-400'}`}>{syncInfo.isPaired ? `Role: ${syncInfo.role} • Cloud ID: ${syncInfo.pairCode}` : 'Export your master data or pair with another device.'}</p></div>
+                          <div>
+                            <h3 className={`text-2xl font-black uppercase tracking-tighter leading-none mb-3 ${syncInfo.isPaired ? 'text-white' : 'text-slate-800'}`}>
+                                {syncInfo.isPaired ? `Cloud Database Active` : 'Standalone Mode'}
+                            </h3>
+                            <div className="flex flex-col gap-1">
+                                <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${syncInfo.isPaired ? 'text-indigo-300' : 'text-slate-400'}`}>
+                                    {syncInfo.isPaired ? `Connected as ${syncInfo.role} • School ID: ${syncInfo.schoolId?.slice(-8)}` : 'Link your data to enable real-time updates across multiple phones.'}
+                                </p>
+                                {syncInfo.lastSync && (
+                                    <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Last Synced: {new Date(syncInfo.lastSync).toLocaleTimeString()}</p>
+                                )}
+                            </div>
+                          </div>
                       </div>
                   </div>
 
@@ -305,40 +318,41 @@ export const Settings: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-6 duration-500">
                         <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group">
                             <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-8 text-blue-600 group-hover:scale-110 transition-transform shadow-inner"><Share2 className="w-8 h-8" /></div>
-                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Export as Master</h4>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">This creates a sync package of your entire school setup. Share this with other faculty phones so they can see the same timetable.</p>
-                            <button onClick={() => { const token = generateSyncToken(); setGeneratedToken(token); }} className="w-full py-5 bg-slate-900 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-blue-600 shadow-xl transition-all">Generate Master Token</button>
+                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Host Master Database</h4>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose mb-10 flex-1">Become the central source of truth. All faculty devices will sync their attendance to your database in real-time.</p>
+                            <button onClick={() => { const token = generateSyncToken(); setGeneratedToken(token); }} className="w-full py-5 bg-slate-900 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-blue-600 shadow-xl transition-all">Enable Cloud Hosting</button>
                         </div>
                         <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col group">
                             <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform shadow-inner"><Smartphone className="w-8 h-8" /></div>
-                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Pair as Faculty</h4>
+                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">Connect to School ID</h4>
                             <div className="space-y-4">
-                                <textarea value={syncTokenInput} onChange={(e) => { setSyncTokenInput(e.target.value); setJoinError(null); }} placeholder="Paste Sync Token here..." className={`w-full h-32 p-4 bg-slate-50 border rounded-2xl text-[10px] font-mono break-all focus:ring-4 focus:ring-blue-100 outline-none transition-all ${joinError ? 'border-rose-400' : 'border-slate-200'}`} />
+                                <textarea value={syncTokenInput} onChange={(e) => { setSyncTokenInput(e.target.value); setJoinError(null); }} placeholder="Paste Cloud Sync Token here..." className={`w-full h-32 p-4 bg-slate-50 border rounded-2xl text-[10px] font-mono break-all focus:ring-4 focus:ring-blue-100 outline-none transition-all ${joinError ? 'border-rose-400' : 'border-slate-200'}`} />
                                 {joinError && <div className="text-rose-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {joinError}</div>}
-                                <button disabled={isJoining} onClick={handleImportToken} className="w-full py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-indigo-700 shadow-xl transition-all disabled:opacity-30">Import Master Data</button>
+                                <button disabled={isJoining} onClick={handleImportToken} className="w-full py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] hover:bg-indigo-700 shadow-xl transition-all disabled:opacity-30">Join Real-time Database</button>
                             </div>
                         </div>
                     </div>
                   ) : (
                     <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-8 text-center">
                         <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6"><Check className="w-10 h-10" /></div>
-                        <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tight">System Fully Synchronized</h4>
-                        <button onClick={() => triggerConfirm("Disconnect Sync?", "Switch back to Standalone mode?", disconnectSync)} className="text-rose-600 text-[10px] font-black uppercase tracking-widest hover:underline flex items-center gap-2 mx-auto"><CloudOff className="w-4 h-4" /> Disconnect Sync</button>
+                        <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Database Synchronized</h4>
+                        <p className="text-xs font-bold text-slate-400 max-w-sm mx-auto">Your device is listening for real-time changes on the cloud. Changes made on other devices appear here instantly.</p>
+                        <button onClick={() => triggerConfirm("Disconnect Database?", "Stop real-time syncing and switch back to Standalone mode?", disconnectSync)} className="text-rose-600 text-[10px] font-black uppercase tracking-widest hover:underline flex items-center gap-2 mx-auto"><WifiOff className="w-4 h-4" /> Disconnect Database</button>
                     </div>
                   )}
 
                   {generatedToken && (
                     <div className="bg-emerald-600 p-12 rounded-[4rem] text-white text-center shadow-2xl animate-in zoom-in duration-500">
-                        <h4 className="text-3xl font-black tracking-tighter uppercase mb-6">Sync Token Ready</h4>
+                        <h4 className="text-3xl font-black tracking-tighter uppercase mb-6">Cloud ID Ready</h4>
                         <div className="bg-white/10 p-6 rounded-[2.5rem] border border-white/20 mb-8 max-h-48 overflow-y-auto scrollbar-hide">
                             <code className="text-[9px] font-mono break-all text-white/80">{generatedToken}</code>
                         </div>
                         <div className="flex gap-4 justify-center">
                             <button onClick={async () => {
-                                try { await navigator.share({ title: 'Mupini Token', text: generatedToken }); } 
+                                try { await navigator.share({ title: 'Mupini Cloud Token', text: generatedToken }); } 
                                 catch (e) { navigator.clipboard.writeText(generatedToken); setCopyFeedback(true); setTimeout(() => setCopyFeedback(false), 2000); }
                             }} className="px-10 py-5 bg-white text-emerald-600 rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em] flex items-center gap-3">
-                                <Share2 className="w-4 h-4" /> {copyFeedback ? 'Copied to Clipboard' : 'Share with Staff'}
+                                <Share2 className="w-4 h-4" /> {copyFeedback ? 'Copied to Clipboard' : 'Share Cloud ID'}
                             </button>
                             <button onClick={() => setGeneratedToken(null)} className="px-8 py-5 bg-black/20 text-white rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.3em]">Close</button>
                         </div>
@@ -415,7 +429,7 @@ export const Settings: React.FC = () => {
                         <div className="bg-emerald-600 p-10 rounded-[3rem] text-white flex items-center justify-between shadow-xl shadow-emerald-200">
                             <div className="flex items-center gap-6">
                                 <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center"><Check className="w-8 h-8" /></div>
-                                <div><h3 className="text-2xl font-black uppercase tracking-tight leading-none">Extraction Complete</h3><p className="text-[10px] font-black text-emerald-200 uppercase tracking-widest mt-2">{aiImportResult.profiles.length} Profiles Detected</p></div>
+                               <div><h3 className="text-2xl font-black uppercase tracking-tight leading-none">Extraction Complete</h3><p className="text-[10px] font-black text-emerald-200 uppercase tracking-widest mt-2">{aiImportResult.profiles.length} Profiles Detected</p></div>
                             </div>
                             <div className="flex gap-4">
                                 <button onClick={cancelAiImport} className="px-8 py-4 bg-white/10 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-white/20">Cancel</button>

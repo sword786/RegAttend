@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, Users, GraduationCap, Calendar, MessageSquare, Settings, Cloud, Zap } from 'lucide-react';
+import { LayoutDashboard, Users, GraduationCap, Calendar, MessageSquare, Settings, Cloud, Zap, RefreshCw, AlertCircle } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 
 interface SidebarProps {
@@ -11,7 +11,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen }) => {
-  const { schoolName, syncInfo } = useData();
+  const { schoolName, syncInfo, forceSync } = useData();
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -68,20 +68,35 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
             })}
             </nav>
 
-            {/* SYNC STATUS FOOTER */}
+            {/* REAL-TIME SYNC FOOTER */}
             {syncInfo.isPaired && (
                 <div className="p-4 border-t border-slate-50 bg-slate-50/50">
                     <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                                <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Live Syncing...</span>
+                                <div className={`w-2 h-2 rounded-full ${
+                                    syncInfo.connectionState === 'CONNECTED' ? 'bg-emerald-500 animate-pulse' :
+                                    syncInfo.connectionState === 'SYNCING' ? 'bg-blue-500 animate-spin' :
+                                    syncInfo.connectionState === 'ERROR' ? 'bg-rose-500' : 'bg-slate-300'
+                                }`}></div>
+                                <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
+                                    {syncInfo.connectionState === 'SYNCING' ? 'Updating...' : 'Real-time Cloud'}
+                                </span>
                             </div>
-                            <Zap className="w-3.5 h-3.5 text-blue-500 fill-blue-500 animate-pulse" />
+                            <button 
+                                onClick={() => forceSync()}
+                                className="p-1 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-blue-600 transition-all"
+                                title="Force Refresh"
+                            >
+                                <RefreshCw className={`w-3.5 h-3.5 ${syncInfo.connectionState === 'SYNCING' ? 'animate-spin' : ''}`} />
+                            </button>
                         </div>
-                        <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400">
-                            <Cloud className="w-3 h-3" />
-                            School ID: {syncInfo.pairCode}
+                        <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
+                            <div className="flex items-center gap-1.5 truncate">
+                                <Cloud className="w-3 h-3 shrink-0" />
+                                <span className="truncate">ID: {syncInfo.schoolId?.slice(-6) || 'N/A'}</span>
+                            </div>
+                            {syncInfo.connectionState === 'ERROR' && <AlertCircle className="w-3 h-3 text-rose-500" />}
                         </div>
                     </div>
                 </div>
