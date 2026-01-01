@@ -59,8 +59,8 @@ export const Assistant: React.FC = () => {
                             if (args.action === 'add') {
                                 data.addEntity({
                                     id: `${args.type.toLowerCase()}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                                    name: args.name,
-                                    shortCode: args.shortCode || args.name.substring(0,3).toUpperCase(),
+                                    name: args.name || "Unnamed Profile",
+                                    shortCode: args.shortCode || (args.name ? args.name.substring(0,3).toUpperCase() : "??"),
                                     type: args.type as 'TEACHER' | 'CLASS',
                                     schedule: createEmptySchedule()
                                 });
@@ -77,7 +77,7 @@ export const Assistant: React.FC = () => {
                             if (args.action === 'add') {
                                 data.addStudent({
                                     id: `student-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                                    name: args.name,
+                                    name: args.name || "Unnamed Student",
                                     rollNumber: args.rollNumber || `R-${Date.now()}`,
                                     classId: args.classId || ''
                                 });
@@ -102,14 +102,14 @@ export const Assistant: React.FC = () => {
             if (response.text) {
                 setMessages(prev => [...prev, { role: 'model', text: response.text!, timestamp: new Date() }]);
             } else {
-                setMessages(prev => [...prev, { role: 'model', text: "I've applied those changes to the system for you.", timestamp: new Date() }]);
+                setMessages(prev => [...prev, { role: 'model', text: "I've processed those changes for you.", timestamp: new Date() }]);
             }
         } else {
             setMessages(prev => [...prev, { role: 'model', text: response.text || "I'm sorry, I couldn't process that request.", timestamp: new Date() }]);
         }
     } catch (error) {
         console.error("Assistant error:", error);
-        setMessages(prev => [...prev, { role: 'model', text: "I encountered an error while trying to process your request. Please check your connection and try again.", timestamp: new Date() }]);
+        setMessages(prev => [...prev, { role: 'model', text: "I encountered an error. Please try again.", timestamp: new Date() }]);
     } finally {
         setLoading(false);
     }

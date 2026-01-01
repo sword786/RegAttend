@@ -1,10 +1,10 @@
 
-import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
+import { GoogleGenAI, Type, FunctionDeclaration, GenerateContentResponse } from "@google/genai";
 import { AiImportResult } from '../types';
 
 const TIMETABLE_SYSTEM_INSTRUCTION = `
     You are a professional School Timetable Digitizer and Data Architect. 
-    Your goal: Process TWO documents (Teacher Timetable and Class Timetable) to create a 100% COMPLETE and unified digital school schedule.
+    Your goal: Process documents to create a 100% COMPLETE and unified digital school schedule.
 `;
 
 export const processTimetableImport = async (inputs: { 
@@ -19,7 +19,7 @@ export const processTimetableImport = async (inputs: {
       { text: `DOCUMENT ${index + 1} (${input.label} TIMETABLE): Extract every single individual schedule from this document.` }
     ])).flat();
 
-    const response = await ai.models.generateContent({
+    const response: GenerateContentResponse = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: { parts: contentParts },
       config: {
@@ -85,8 +85,6 @@ const convertArrayToSchedule = (entries: any[]) => {
     return newSchedule;
 };
 
-// --- ASSISTANT FUNCTION CALLING TOOLS ---
-
 export const ASSISTANT_TOOLS: FunctionDeclaration[] = [
   {
     name: 'update_school_settings',
@@ -142,7 +140,7 @@ export const ASSISTANT_TOOLS: FunctionDeclaration[] = [
         room: { type: Type.STRING, description: 'Room name/number' },
         teacherOrClass: { type: Type.STRING, description: 'The identifier of the linked teacher or class for this slot' }
       },
-      required: ['entityId', 'day', 'period']
+      required: ['entityId', 'day', 'period', 'subject']
     }
   }
 ];
@@ -150,13 +148,11 @@ export const ASSISTANT_TOOLS: FunctionDeclaration[] = [
 export const generateAiResponseWithTools = async (userPrompt: string, history: any[], dataContext: any) => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // Provide the current state as context for the AI
   const currentContext = `
     CURRENT APP STATE:
     School: ${dataContext.schoolName} (${dataContext.academicYear})
-    Profiles: ${JSON.stringify(dataContext.entities.map((e: any) => ({ id: e.id, name: e.name, type: e.type, code: e.shortCode })))}
-    Students: ${dataContext.students.length} enrolled.
-    Classes: ${dataContext.entities.filter((e: any) => e.type === 'CLASS').map((e: any) => e.name).join(', ')}
+    Existing Profiles: ${dataContext.entities.length > 0 ? JSON.stringify(dataContext.entities.map((e: any) => ({ id: e.id, name: e.name, type: e.type, code: e.shortCode }))) : 'None yet'}
+    Total Students: ${dataContext.students.length}
   `;
 
   return ai.models.generateContent({
@@ -167,7 +163,7 @@ export const generateAiResponseWithTools = async (userPrompt: string, history: a
         { role: 'user', parts: [{ text: userPrompt }] }
     ],
     config: {
-      systemInstruction: 'You are an administrative AI for Mupini Connect. You have authority to change app settings and data using tools. If you perform an action, confirm it to the user.',
+      systemInstruction: 'You are the Mupini Connect Admin AI. You help manage school data. ALWAYS use IDs from the context when modifying data. If an entity doesn\'t exist, create it first. Confirm actions clearly.',
       tools: [{ functionDeclarations: ASSISTANT_TOOLS }]
     }
   });
