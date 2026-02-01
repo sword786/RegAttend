@@ -26,11 +26,9 @@ interface DataContextType {
   syncInfo: SyncMetadata;
   firebaseConfig: any;
   setFirebaseConfig: (config: any) => Promise<boolean>;
-  generateSyncToken: () => string; 
   getPairingToken: () => string;
   importSyncToken: (token: string) => Promise<boolean>;
   disconnectSync: () => void;
-  forceSync: () => Promise<void>;
 
   aiImportStatus: AiImportStatus;
   aiImportResult: AiImportResult | null;
@@ -48,24 +46,16 @@ interface DataContextType {
   updateSchoolName: (name: string) => void;
   updateAcademicYear: (year: string) => void;
   updatePrimaryColor: (color: string) => void;
-  updateEntities: (entities: EntityProfile[]) => void;
-  updateStudents: (students: Student[]) => void;
-  updateTimeSlots: (slots: TimeSlot[]) => void;
-  
   addEntity: (entity: EntityProfile) => void;
-  addEntities: (newEntities: EntityProfile[]) => void;
   updateEntity: (id: string, updates: Partial<EntityProfile>) => void;
   deleteEntity: (id: string) => void;
-
   addStudent: (student: Student) => void;
   addStudents: (newStudents: Student[]) => void;
   updateStudent: (id: string, updates: Partial<Student>) => void;
   deleteStudent: (id: string) => void;
-
+  updateTimeSlots: (slots: TimeSlot[]) => void;
   deleteTimeSlot: (period: number) => void;
-
   updateSchedule: (entityId: string, day: string, period: number, entry: TimetableEntry | null) => void;
-
   markAttendance: (records: AttendanceRecord[]) => void;
   getAttendanceForPeriod: (date: string, entityId: string, period: number) => AttendanceRecord[];
   resetData: () => void;
@@ -74,72 +64,84 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [schoolName, setSchoolName] = useState(() => {
-    const sn = localStorage.getItem('mup_sn');
-    return sn ? JSON.parse(sn) : 'Mupini Combined School';
-  });
-  const [academicYear, setAcademicYear] = useState(() => {
-    const ay = localStorage.getItem('mup_ay');
-    return ay ? JSON.parse(ay) : '2025';
-  });
-  const [primaryColor, setPrimaryColor] = useState(() => {
-    const pc = localStorage.getItem('mup_pc');
-    return pc ? JSON.parse(pc) : '#3b82f6';
-  });
-  const [entities, setEntities] = useState<EntityProfile[]>(() => {
-    const en = localStorage.getItem('mup_en');
-    return en ? JSON.parse(en) : DEFAULT_DATA;
-  });
-  const [students, setStudents] = useState<Student[]>(() => {
-    const st = localStorage.getItem('mup_st');
-    return st ? JSON.parse(st) : DEFAULT_STUDENTS;
-  });
-  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>(() => {
-    const ts = localStorage.getItem('mup_ts');
-    return ts ? JSON.parse(ts) : DEFAULT_TIME_SLOTS;
-  });
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
-    const ar = localStorage.getItem('mup_ar');
-    return ar ? JSON.parse(ar) : [];
-  });
-  const [firebaseConfig, setFirebaseConfigState] = useState<any>(() => {
-    const fb = localStorage.getItem('mup_fb');
-    const parsed = fb ? JSON.parse(fb) : null;
-    if (parsed) initFirebase(parsed);
-    return parsed;
-  });
   const [userRole, setUserRoleState] = useState<UserRole | null>(() => {
-    const ur = localStorage.getItem('mup_ur');
+    const ur = localStorage.getItem('mup_role');
     return ur ? (JSON.parse(ur) as UserRole) : null;
   });
 
-  const [isInitialized, setIsInitialized] = useState(false);
+  const getPrefix = (role: UserRole | null) => role === 'STANDALONE' ? 'local' : 'cloud';
+
+  const loadStored = (key: string, def: any, role: UserRole | null) => {
+    if (!role) return def;
+    const data = localStorage.getItem(`mup_${getPrefix(role)}_${key}`);
+    return data ? JSON.parse(data) : def;
+  };
+
+  const [schoolName, setSchoolName] = useState(() => loadStored('sn', 'Mupini Combined School', userRole));
+  const [academicYear, setAcademicYear] = useState(() => loadStored('ay', '2025', userRole));
+  const [primaryColor, setPrimaryColor] = useState(() => loadStored('pc', '#3b82f6', userRole));
+  const [entities, setEntities] = useState<EntityProfile[]>(() => loadStored('en', DEFAULT_DATA, userRole));
+  const [students, setStudents] = useState<Student[]>(() => loadStored('st', DEFAULT_STUDENTS, userRole));
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>(() => loadStored('ts', DEFAULT_TIME_SLOTS, userRole));
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => loadStored('ar', [], userRole));
+  const [firebaseConfig, setFirebaseConfigState] = useState<any>(() => loadStored('fb', null, userRole));
+  
   const [syncInfo, setSyncInfo] = useState<SyncMetadata>(() => {
-    const sy = localStorage.getItem('mup_sy');
-    const parsed = sy ? JSON.parse(sy) : null;
+    const sy = loadStored('sy', null, userRole);
     return {
-      isPaired: parsed?.isPaired || false,
-      pairCode: parsed?.pairCode || null,
-      role: parsed?.role || 'STANDALONE',
-      lastSync: parsed?.lastSync || null,
-      schoolId: parsed?.schoolId || null,
+      isPaired: sy?.isPaired || false,
+      pairCode: sy?.pairCode || null,
+      role: userRole || 'STANDALONE',
+      lastSync: sy?.lastSync || null,
+      schoolId: sy?.schoolId || null,
       deviceId: `dev-${Math.random().toString(36).substr(2, 9)}`,
-      connectionState: parsed?.isPaired ? 'CONNECTING' : 'OFFLINE'
+      connectionState: sy?.isPaired ? 'CONNECTING' : 'OFFLINE'
     };
   });
 
+  const [isInitialized, setIsInitialized] = useState(false);
   const skipFirebaseSync = useRef(false);
+
   const [aiImportStatus, setAiImportStatus] = useState<AiImportStatus>('IDLE');
   const [aiImportResult, setAiImportResult] = useState<AiImportResult | null>(null);
   const [aiImportErrorMessage, setAiImportErrorMessage] = useState<string | null>(null);
-
   const [studentAiImportStatus, setStudentAiImportStatus] = useState<AiImportStatus>('IDLE');
   const [studentAiImportResult, setStudentAiImportResult] = useState<AiStudentImportResult | null>(null);
 
   useEffect(() => { setIsInitialized(true); }, []);
 
+  const setUserRole = (newRole: UserRole) => {
+    localStorage.setItem('mup_role', JSON.stringify(newRole));
+    setUserRoleState(newRole);
+    
+    // Switch state values based on the branch
+    setSchoolName(loadStored('sn', 'Mupini Combined School', newRole));
+    setAcademicYear(loadStored('ay', '2025', newRole));
+    setPrimaryColor(loadStored('pc', '#3b82f6', newRole));
+    setEntities(loadStored('en', DEFAULT_DATA, newRole));
+    setStudents(loadStored('st', DEFAULT_STUDENTS, newRole));
+    setTimeSlots(loadStored('ts', DEFAULT_TIME_SLOTS, newRole));
+    setAttendanceRecords(loadStored('ar', [], newRole));
+    const fbCfg = loadStored('fb', null, newRole);
+    setFirebaseConfigState(fbCfg);
+    
+    const sy = loadStored('sy', null, newRole);
+    setSyncInfo({
+      isPaired: sy?.isPaired || false,
+      pairCode: sy?.pairCode || null,
+      role: newRole,
+      lastSync: sy?.lastSync || null,
+      schoolId: sy?.schoolId || null,
+      deviceId: `dev-${Math.random().toString(36).substr(2, 9)}`,
+      connectionState: sy?.isPaired ? 'CONNECTING' : 'OFFLINE'
+    });
+
+    if (fbCfg) initFirebase(fbCfg);
+    else initFirebase(null);
+  };
+
   useEffect(() => {
-    if (syncInfo.isPaired && syncInfo.schoolId && firebaseConfig) {
+    if (userRole !== 'STANDALONE' && syncInfo.isPaired && syncInfo.schoolId && firebaseConfig) {
       const unsubscribe = FirebaseSync.subscribe(syncInfo.schoolId, (data) => {
         if (skipFirebaseSync.current) {
           skipFirebaseSync.current = false;
@@ -156,10 +158,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       
       const connectionUnsub = FirebaseSync.monitorConnection((connected) => {
-        setSyncInfo(prev => ({
-            ...prev,
-            connectionState: connected ? 'CONNECTED' : 'CONNECTING'
-        }));
+        setSyncInfo(prev => ({ ...prev, connectionState: connected ? 'CONNECTED' : 'CONNECTING' }));
       });
 
       return () => {
@@ -167,56 +166,37 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         connectionUnsub();
       };
     }
-  }, [syncInfo.isPaired, syncInfo.schoolId, firebaseConfig]);
+  }, [syncInfo.isPaired, syncInfo.schoolId, firebaseConfig, userRole]);
 
   useEffect(() => {
-    if (!isInitialized) return;
-    localStorage.setItem('mup_sn', JSON.stringify(schoolName));
-    localStorage.setItem('mup_ay', JSON.stringify(academicYear));
-    localStorage.setItem('mup_pc', JSON.stringify(primaryColor));
-    localStorage.setItem('mup_en', JSON.stringify(entities));
-    localStorage.setItem('mup_st', JSON.stringify(students));
-    localStorage.setItem('mup_ts', JSON.stringify(timeSlots));
-    localStorage.setItem('mup_ar', JSON.stringify(attendanceRecords));
-    localStorage.setItem('mup_sy', JSON.stringify(syncInfo));
-    localStorage.setItem('mup_fb', JSON.stringify(firebaseConfig));
-    localStorage.setItem('mup_ur', JSON.stringify(userRole));
+    if (!isInitialized || !userRole) return;
+    const prefix = getPrefix(userRole);
+    localStorage.setItem(`mup_${prefix}_sn`, JSON.stringify(schoolName));
+    localStorage.setItem(`mup_${prefix}_ay`, JSON.stringify(academicYear));
+    localStorage.setItem(`mup_${prefix}_pc`, JSON.stringify(primaryColor));
+    localStorage.setItem(`mup_${prefix}_en`, JSON.stringify(entities));
+    localStorage.setItem(`mup_${prefix}_st`, JSON.stringify(students));
+    localStorage.setItem(`mup_${prefix}_ts`, JSON.stringify(timeSlots));
+    localStorage.setItem(`mup_${prefix}_ar`, JSON.stringify(attendanceRecords));
+    localStorage.setItem(`mup_${prefix}_sy`, JSON.stringify(syncInfo));
+    localStorage.setItem(`mup_${prefix}_fb`, JSON.stringify(firebaseConfig));
   }, [schoolName, academicYear, primaryColor, entities, students, timeSlots, attendanceRecords, syncInfo, firebaseConfig, userRole, isInitialized]);
 
-  const updateSchoolName = (name: string) => { 
-    setSchoolName(name); 
-    if(syncInfo.isPaired) {
-        skipFirebaseSync.current = true;
-        FirebaseSync.updateData(syncInfo.schoolId!, 'schoolName', name);
+  const pushToCloud = (path: string, data: any) => {
+    if (userRole !== 'STANDALONE' && syncInfo.isPaired && syncInfo.schoolId) {
+      skipFirebaseSync.current = true;
+      FirebaseSync.updateData(syncInfo.schoolId, path, data);
     }
   };
-  const updateAcademicYear = (year: string) => { 
-    setAcademicYear(year); 
-    if(syncInfo.isPaired) {
-        skipFirebaseSync.current = true;
-        FirebaseSync.updateData(syncInfo.schoolId!, 'academicYear', year);
-    }
-  };
-  const updatePrimaryColor = (color: string) => { 
-    setPrimaryColor(color); 
-    if(syncInfo.isPaired) {
-        skipFirebaseSync.current = true;
-        FirebaseSync.updateData(syncInfo.schoolId!, 'primaryColor', color);
-    }
-  };
+
+  const updateSchoolName = (name: string) => { setSchoolName(name); pushToCloud('schoolName', name); };
+  const updateAcademicYear = (year: string) => { setAcademicYear(year); pushToCloud('academicYear', year); };
+  const updatePrimaryColor = (color: string) => { setPrimaryColor(color); pushToCloud('primaryColor', color); };
 
   const addEntity = (entity: EntityProfile) => {
     setEntities(prev => {
       const next = [...prev, entity];
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'entities', next); }
-      return next;
-    });
-  };
-
-  const addEntities = (newEntities: EntityProfile[]) => {
-    setEntities(prev => {
-      const next = [...prev, ...newEntities];
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'entities', next); }
+      pushToCloud('entities', next);
       return next;
     });
   };
@@ -224,7 +204,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateEntity = (id: string, updates: Partial<EntityProfile>) => {
     setEntities(prev => {
       const next = prev.map(e => e.id === id ? { ...e, ...updates } : e);
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'entities', next); }
+      pushToCloud('entities', next);
       return next;
     });
   };
@@ -232,7 +212,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteEntity = (id: string) => {
     setEntities(prev => {
       const next = prev.filter(e => e.id !== id);
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'entities', next); }
+      pushToCloud('entities', next);
       return next;
     });
   };
@@ -240,7 +220,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const addStudent = (student: Student) => {
     setStudents(prev => {
       const next = [...prev, student];
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'students', next); }
+      pushToCloud('students', next);
       return next;
     });
   };
@@ -248,7 +228,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const addStudents = (newStudents: Student[]) => {
     setStudents(prev => {
       const next = [...prev, ...newStudents];
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'students', next); }
+      pushToCloud('students', next);
       return next;
     });
   };
@@ -256,7 +236,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateStudent = (id: string, updates: Partial<Student>) => {
     setStudents(prev => {
       const next = prev.map(s => s.id === id ? { ...s, ...updates } : s);
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'students', next); }
+      pushToCloud('students', next);
       return next;
     });
   };
@@ -264,23 +244,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteStudent = (id: string) => {
     setStudents(prev => {
       const next = prev.filter(s => s.id !== id);
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'students', next); }
+      pushToCloud('students', next);
       return next;
     });
   };
 
   const updateTimeSlots = (newTimeSlots: TimeSlot[]) => {
     setTimeSlots(newTimeSlots);
-    if (syncInfo.isPaired) {
-      skipFirebaseSync.current = true;
-      FirebaseSync.updateData(syncInfo.schoolId!, 'timeSlots', newTimeSlots);
-    }
+    pushToCloud('timeSlots', newTimeSlots);
   };
 
   const deleteTimeSlot = (period: number) => {
     setTimeSlots(prev => {
       const next = prev.filter(s => s.period !== period);
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'timeSlots', next); }
+      pushToCloud('timeSlots', next);
       return next;
     });
   };
@@ -293,70 +270,34 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       let updatedEntities = prev.map(e => e.id === entityId ? {
         ...e,
-        schedule: { 
-            ...createEmptySchedule(), 
-            ...(e.schedule || {}), 
-            [dayKey]: { ...(e.schedule?.[dayKey] || {}), [period]: entry } 
-        }
+        schedule: { ...createEmptySchedule(), ...(e.schedule || {}), [dayKey]: { ...(e.schedule?.[dayKey] || {}), [period]: entry } }
       } : e);
 
       const sourceCode = currentEntity.shortCode || currentEntity.name;
       const targetCode = entry?.teacherOrClass;
 
       if (entry && targetCode) {
-        const targetIdx = updatedEntities.findIndex(e => 
-            e.type !== currentEntity.type && (e.shortCode === targetCode || e.name === targetCode)
-        );
-
+        const targetIdx = updatedEntities.findIndex(e => e.type !== currentEntity.type && (e.shortCode === targetCode || e.name === targetCode));
         if (targetIdx !== -1) {
           const target = updatedEntities[targetIdx];
           updatedEntities[targetIdx] = {
             ...target,
-            schedule: {
-                ...createEmptySchedule(),
-                ...(target.schedule || {}),
-                [dayKey]: {
-                    ...(target.schedule?.[dayKey] || {}),
-                    [period]: {
-                        subject: entry.subject,
-                        room: entry.room,
-                        teacherOrClass: sourceCode,
-                        type: entry.type
-                    }
-                }
-            }
+            schedule: { ...createEmptySchedule(), ...(target.schedule || {}), [dayKey]: { ...(target.schedule?.[dayKey] || {}), [period]: { subject: entry.subject, room: entry.room, teacherOrClass: sourceCode, type: entry.type } } }
           };
         }
       } else if (entry === null) {
           const prevEntry = currentEntity.schedule?.[dayKey]?.[period];
           if (prevEntry?.teacherOrClass) {
-              const targetIdx = updatedEntities.findIndex(e => 
-                  e.type !== currentEntity.type && (e.shortCode === prevEntry.teacherOrClass || e.name === prevEntry.teacherOrClass)
-              );
+              const targetIdx = updatedEntities.findIndex(e => e.type !== currentEntity.type && (e.shortCode === prevEntry.teacherOrClass || e.name === prevEntry.teacherOrClass));
               if (targetIdx !== -1) {
                   const target = updatedEntities[targetIdx];
-                  const targetEntryAtSlot = target.schedule?.[dayKey]?.[period];
-                  if (targetEntryAtSlot?.teacherOrClass === sourceCode) {
-                      updatedEntities[targetIdx] = {
-                        ...target,
-                        schedule: {
-                            ...createEmptySchedule(),
-                            ...(target.schedule || {}),
-                            [dayKey]: {
-                                ...(target.schedule?.[dayKey] || {}),
-                                [period]: null
-                            }
-                        }
-                      };
+                  if (target.schedule?.[dayKey]?.[period]?.teacherOrClass === sourceCode) {
+                      updatedEntities[targetIdx] = { ...target, schedule: { ...createEmptySchedule(), ...(target.schedule?.[dayKey] || {}), [period]: null } };
                   }
               }
           }
       }
-
-      if (syncInfo.isPaired) { 
-        skipFirebaseSync.current = true; 
-        FirebaseSync.updateData(syncInfo.schoolId!, 'entities', updatedEntities); 
-      }
+      pushToCloud('entities', updatedEntities);
       return updatedEntities;
     });
   };
@@ -365,7 +306,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setAttendanceRecords(prev => {
       const filtered = prev.filter(r => !newRecords.some(nr => nr.date === r.date && nr.period === r.period && nr.studentId === r.studentId));
       const next = [...filtered, ...newRecords];
-      if (syncInfo.isPaired) { skipFirebaseSync.current = true; FirebaseSync.updateData(syncInfo.schoolId!, 'attendanceRecords', next); }
+      pushToCloud('attendanceRecords', next);
       return next;
     });
   };
@@ -377,7 +318,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const startAiImport = async (files: { file: File, label: 'TEACHER' | 'CLASS' }[]) => {
     setAiImportStatus('PROCESSING');
     try {
-        const payload: { base64: string, mimeType: string, label: 'TEACHER' | 'CLASS' }[] = [];
+        const payload: any[] = [];
         for (const item of files) {
             const base64 = await new Promise<string>((resolve) => {
                 const reader = new FileReader();
@@ -387,32 +328,21 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             payload.push({ base64, mimeType: item.file.type, label: item.label });
         }
         const result = await processTimetableImport(payload);
-        if (result && result.profiles.length > 0) { 
-          setAiImportResult(result); 
-          setAiImportStatus('REVIEW'); 
-        } else { 
-          setAiImportStatus('ERROR'); 
-          setAiImportErrorMessage("No profiles detected."); 
-        }
-    } catch (err: any) { 
-      setAiImportStatus('ERROR'); 
-      setAiImportErrorMessage(err.message); 
-    }
+        if (result && result.profiles.length > 0) { setAiImportResult(result); setAiImportStatus('REVIEW'); } 
+        else { setAiImportStatus('ERROR'); setAiImportErrorMessage("No profiles detected."); }
+    } catch (err: any) { setAiImportStatus('ERROR'); setAiImportErrorMessage(err.message || "AI Error."); }
   };
 
   const startStudentAiImport = async (files: File[]) => {
     setStudentAiImportStatus('PROCESSING');
     try {
-        const payload: { base64?: string, mimeType?: string, text?: string }[] = [];
+        const payload: any[] = [];
         for (const f of files) {
-            const isExcel = f.name.match(/\.(xlsx|xls|csv)$/i);
-            if (isExcel) {
+            if (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')) {
                 const data = await f.arrayBuffer();
                 const workbook = XLSX.read(data);
-                const firstSheet = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheet];
-                const csvData = XLSX.utils.sheet_to_csv(worksheet);
-                payload.push({ text: `Content of ${f.name}:\n${csvData}` });
+                const csvData = XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]]);
+                payload.push({ text: `Roster (${f.name}):\n${csvData}` });
             } else {
                 const base64 = await new Promise<string>((resolve) => {
                     const reader = new FileReader();
@@ -423,15 +353,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
         }
         const result = await processStudentImport(payload);
-        if (result && result.students.length > 0) {
-            setStudentAiImportResult(result);
-            setStudentAiImportStatus('REVIEW');
-        } else {
-            setStudentAiImportStatus('ERROR');
-        }
-    } catch (err: any) {
-        setStudentAiImportStatus('ERROR');
-    }
+        if (result && result.students.length > 0) { setStudentAiImportResult(result); setStudentAiImportStatus('REVIEW'); } 
+        else { setStudentAiImportStatus('ERROR'); }
+    } catch (err) { setStudentAiImportStatus('ERROR'); }
   };
 
   const finalizeAiImport = () => {
@@ -443,34 +367,25 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         type: p.type,
         schedule: { ...createEmptySchedule(), ...(p.schedule || {}) }
     }));
-    addEntities(newEntities);
+    setEntities(prev => { const next = [...prev, ...newEntities]; pushToCloud('entities', next); return next; });
     setAiImportStatus('COMPLETED');
+    setAiImportResult(null);
   };
 
   const finalizeStudentAiImport = (targetClassId?: string) => {
     if (!studentAiImportResult) return;
     const classEntities = entities.filter(e => e.type === 'CLASS');
-    
     const newStuds: Student[] = studentAiImportResult.students.map((s, idx) => {
         let resolvedClassId = targetClassId || '';
         if (!targetClassId && s.className) {
-            const matched = classEntities.find(c => 
-                c.name.toLowerCase().includes(s.className!.toLowerCase()) || 
-                (c.shortCode && s.className!.toLowerCase().includes(c.shortCode.toLowerCase()))
-            );
-            if (matched) resolvedClassId = matched.id;
+            const matchedClass = classEntities.find(c => c.name.toLowerCase().includes(s.className!.toLowerCase()) || (c.shortCode && s.className!.toLowerCase().includes(c.shortCode.toLowerCase())));
+            if (matchedClass) resolvedClassId = matchedClass.id;
         }
-        return {
-            id: `student-${Date.now()}-${idx}`,
-            name: s.name,
-            rollNumber: s.rollNumber || '',
-            classId: resolvedClassId,
-            admissionNumber: s.admissionNumber,
-            classNumber: s.rollNumber
-        };
+        return { id: `student-${Date.now()}-${idx}`, name: s.name, rollNumber: s.rollNumber || '', classId: resolvedClassId, admissionNumber: s.admissionNumber, classNumber: s.rollNumber };
     });
     addStudents(newStuds);
     setStudentAiImportStatus('COMPLETED');
+    setStudentAiImportResult(null);
   };
 
   const importSyncToken = async (token: string): Promise<boolean> => {
@@ -478,7 +393,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const json = decodeURIComponent(escape(atob(token)));
       const decoded = JSON.parse(json);
-      if (!decoded.schoolName) return false;
+      if (!decoded.schoolName || !decoded.entities) return false;
+      
       setSchoolName(decoded.schoolName);
       setAcademicYear(decoded.academicYear || '2025');
       if (decoded.primaryColor) setPrimaryColor(decoded.primaryColor);
@@ -486,59 +402,64 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setStudents(decoded.students || []);
       setTimeSlots(decoded.timeSlots || DEFAULT_TIME_SLOTS);
       setAttendanceRecords(decoded.attendanceRecords || []);
-      if (decoded.firebaseConfig) { setFirebaseConfigState(decoded.firebaseConfig); initFirebase(decoded.firebaseConfig); }
-      setSyncInfo(prev => ({ ...prev, isPaired: true, role: 'TEACHER', schoolId: decoded.masterId, connectionState: 'CONNECTED' }));
+      
+      if (decoded.firebaseConfig) { 
+        setFirebaseConfigState(decoded.firebaseConfig); 
+        await initFirebase(decoded.firebaseConfig); 
+      }
+      
+      setSyncInfo(prev => ({ ...prev, isPaired: true, role: 'TEACHER', lastSync: new Date().toISOString(), schoolId: decoded.masterId, connectionState: 'CONNECTED' }));
       return true;
-    } catch (e) { 
-      setSyncInfo(prev => ({ ...prev, connectionState: 'ERROR' })); 
-      return false; 
-    }
+    } catch (e) { setSyncInfo(prev => ({ ...prev, connectionState: 'ERROR' })); return false; }
   };
 
   const resetData = () => { 
+    const prefix = getPrefix(userRole);
     setSchoolName('Mupini Combined School'); 
+    setAcademicYear('2025'); 
+    setPrimaryColor('#3b82f6');
     setEntities(DEFAULT_DATA); 
     setStudents(DEFAULT_STUDENTS); 
     setTimeSlots(DEFAULT_TIME_SLOTS); 
-    localStorage.clear();
-    setSyncInfo(prev => ({ ...prev, isPaired: false, connectionState: 'OFFLINE' }));
+    setAttendanceRecords([]); 
+    setFirebaseConfigState(null); 
+    setSyncInfo(prev => ({ ...prev, isPaired: false, connectionState: 'OFFLINE', schoolId: null }));
+    
+    const keysToRemove = [`mup_${prefix}_sn`, `mup_${prefix}_ay`, `mup_${prefix}_pc`, `mup_${prefix}_en`, `mup_${prefix}_st`, `mup_${prefix}_ts`, `mup_${prefix}_ar`, `mup_${prefix}_sy`, `mup_${prefix}_fb` ];
+    keysToRemove.forEach(k => localStorage.removeItem(k));
   };
 
-  const logout = () => {
-    setUserRoleState(null);
-  };
-
-  const generateSyncToken = () => {
-    const masterId = syncInfo.schoolId || `sch-${Math.random().toString(36).substr(2, 9)}`;
-    setSyncInfo(p => ({ ...p, isPaired: true, role: 'ADMIN', lastSync: new Date().toISOString(), schoolId: masterId, connectionState: 'CONNECTED' }));
-    if (firebaseConfig) FirebaseSync.setFullState(masterId, { schoolName, academicYear, entities, students, timeSlots, attendanceRecords, primaryColor });
-    return btoa(unescape(encodeURIComponent(JSON.stringify({ schoolName, academicYear, entities, students, timeSlots, masterId, firebaseConfig, primaryColor }))));
-  };
+  const logout = () => { localStorage.removeItem('mup_role'); setUserRoleState(null); };
 
   const getPairingToken = () => {
     if (!syncInfo.schoolId || !firebaseConfig) return '';
-    return btoa(unescape(encodeURIComponent(JSON.stringify({ schoolName, academicYear, entities, students, timeSlots, masterId: syncInfo.schoolId, firebaseConfig, primaryColor }))));
+    return btoa(unescape(encodeURIComponent(JSON.stringify({ 
+      v: "v2", schoolName, academicYear, entities, students, timeSlots, masterId: syncInfo.schoolId, firebaseConfig, primaryColor
+    }))));
   };
 
   return (
     <DataContext.Provider value={{
       schoolName, academicYear, primaryColor, entities, students, timeSlots, attendanceRecords,
-      userRole, setUserRole: (r) => { setUserRoleState(r); setSyncInfo(p => ({ ...p, role: r })); },
-      logout,
+      userRole, setUserRole, logout,
       syncInfo, firebaseConfig, 
       setFirebaseConfig: async (c) => { 
+        if (!c) { setFirebaseConfigState(null); await initFirebase(null); setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); return true; }
         const success = await initFirebase(c);
-        if (success) setFirebaseConfigState(c);
-        return success;
+        if (success) {
+            setFirebaseConfigState(c); 
+            const masterId = syncInfo.schoolId || `sch-${Math.random().toString(36).substr(2, 9)}`;
+            setSyncInfo(p => ({ ...p, isPaired: true, schoolId: masterId, connectionState: 'CONNECTED', role: userRole || 'ADMIN' }));
+            FirebaseSync.setFullState(masterId, { schoolName, academicYear, entities, students, timeSlots, attendanceRecords, primaryColor });
+            return true;
+        } else { setFirebaseConfigState(null); return false; }
       },
-      generateSyncToken,
-      getPairingToken,
-      importSyncToken, disconnectSync: () => setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })), forceSync: async () => {},
+      getPairingToken, importSyncToken, 
+      disconnectSync: () => { setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); }, 
       aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport: () => setAiImportStatus('IDLE'), finalizeAiImport,
       studentAiImportStatus, studentAiImportResult, startStudentAiImport, cancelStudentAiImport: () => setStudentAiImportStatus('IDLE'), finalizeStudentAiImport,
-      updateSchoolName, updateAcademicYear, updatePrimaryColor, updateEntities: setEntities, updateStudents: setStudents, updateTimeSlots,
-      addEntity, addEntities, updateEntity, deleteEntity, addStudent, addStudents, updateStudent, deleteStudent,
-      deleteTimeSlot, updateSchedule, markAttendance, getAttendanceForPeriod, resetData
+      updateSchoolName, updateAcademicYear, updatePrimaryColor, addEntity, updateEntity, deleteEntity, addStudent, addStudents, updateStudent, deleteStudent,
+      updateTimeSlots, deleteTimeSlot, updateSchedule, markAttendance, getAttendanceForPeriod, resetData
     }}>
       {children}
     </DataContext.Provider>
