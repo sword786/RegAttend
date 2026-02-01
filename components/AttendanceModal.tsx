@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Check, Clock, CalendarDays, Users, AlertCircle, FileSpreadsheet, Layers, ChevronDown } from 'lucide-react';
+import { X, Check, Clock, CalendarDays, Users, AlertCircle, FileSpreadsheet, Layers, ChevronDown, CheckCircle2 } from 'lucide-react';
 import { AttendanceStatus, TimetableEntry, AttendanceRecord, EntityProfile } from '../types';
 import { useData } from '../contexts/DataContext';
 
@@ -19,27 +19,35 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
 }) => {
   const { students, getAttendanceForPeriod, markAttendance, entities } = useData();
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [initialAttendance, setInitialAttendance] = useState<Record<string, AttendanceStatus>>({});
+  
+  // Get local date in YYYY-MM-DD format to match timetable logic
+  const getLocalDateString = () => {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+  };
+
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [activeClassId, setActiveClassId] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
 
-  // Determine available rosters for this session
   const rosterOptions = useMemo(() => {
     const rootEntity = entities.find(e => e.id === entityId);
     
-    // Combined (AH) Session: Multiple target classes share one teacher period
     if (entry.type === 'combined' && entry.targetClasses && entry.targetClasses.length > 0) {
         return entities.filter(e => 
             e.type === 'CLASS' && (entry.targetClasses?.includes(e.shortCode || '') || entry.targetClasses?.includes(e.name))
         );
     }
 
-    // Class View: Direct register for that class
     if (rootEntity?.type === 'CLASS') {
         return [rootEntity];
     } 
     
-    // Teacher View: The mapped class ID for this slot
     if (rootEntity?.type === 'TEACHER' && entry.teacherOrClass) {
         const foundClass = entities.find(e => 
             e.type === 'CLASS' && (e.shortCode === entry.teacherOrClass || e.name === entry.teacherOrClass)
@@ -50,7 +58,6 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
     return [];
   }, [entityId, entities, entry]);
 
-  // Set default active class roster
   useEffect(() => {
     if (isOpen && rosterOptions.length > 0 && !activeClassId) {
         setActiveClassId(rosterOptions[0].id);
@@ -59,9 +66,17 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
 
   const activeClass = useMemo(() => entities.find(e => e.id === activeClassId), [entities, activeClassId]);
   
-  const targetStudents = useMemo(() => {
+  const sortedStudents = useMemo(() => {
       if (!activeClassId) return [];
-      return students.filter(s => s.classId === activeClassId);
+      const filtered = students.filter(s => s.classId === activeClassId);
+      return [...filtered].sort((a, b) => {
+          const aVal = a.rollNumber || '';
+          const bVal = b.rollNumber || '';
+          if (aVal === '' && bVal !== '') return 1;
+          if (bVal === '' && aVal !== '') return -1;
+          if (aVal === '' && bVal === '') return a.name.localeCompare(b.name);
+          return aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
+      });
   }, [students, activeClassId]);
 
   useEffect(() => {
@@ -69,15 +84,17 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
       const records = getAttendanceForPeriod(selectedDate, activeClassId, period);
       const initial: Record<string, AttendanceStatus> = {};
       
-      targetStudents.forEach(s => {
+      sortedStudents.forEach(s => {
         const record = records.find(r => r.studentId === s.id);
         initial[s.id] = record ? record.status : 'PRESENT';
       });
       
       setAttendance(initial);
+      setInitialAttendance(initial);
       setIsSaved(false);
+      setIsDirty(false);
     }
-  }, [isOpen, selectedDate, activeClassId, period, targetStudents, getAttendanceForPeriod]);
+  }, [isOpen, selectedDate, activeClassId, period, sortedStudents, getAttendanceForPeriod]);
 
   const toggleStatus = (studentId: string) => {
     setAttendance(prev => {
@@ -87,7 +104,15 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
       else if (current === 'ABSENT') next = 'LATE';
       else if (current === 'LATE') next = 'EXCUSED';
       else if (current === 'EXCUSED') next = 'PRESENT';
-      return { ...prev, [studentId]: next };
+      
+      const updated = { ...prev, [studentId]: next };
+      
+      // Check if current state differs from the loaded/saved state
+      const dirty = Object.keys(updated).some(id => updated[id] !== initialAttendance[id]);
+      setIsDirty(dirty);
+      if (dirty) setIsSaved(false);
+      
+      return updated;
     });
   };
 
@@ -104,42 +129,33 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
   const handleSave = () => {
     if (!activeClassId) return;
 
-    const records: AttendanceRecord[] = targetStudents.map(student => ({
+    const records: AttendanceRecord[] = sortedStudents.map(student => ({
       date: selectedDate,
       period,
       entityId: activeClassId,
       studentId: student.id,
-      status: attendance[student.id] || 'PRESENT'
+      status: attendance[student.id] || 'PRESENT',
+      subject: entry.subject
     }));
 
     markAttendance(records);
+    setInitialAttendance({ ...attendance });
+    setIsDirty(false);
     setIsSaved(true);
+    
     setTimeout(() => {
-        // If it's the only class, close the modal. If combined, stay to allow switching to other rosters.
         if (rosterOptions.length === 1) onClose();
-        else setIsSaved(false);
     }, 800);
   }
 
   const handleExportSingleCSV = () => {
     if (!activeClass) return;
-
     const header = ["Student Name", "Roll Number", "Status", "Date", "Period", "Subject", "Venue"];
     let csvContent = "data:text/csv;charset=utf-8," + header.join(",") + "\n";
-
-    targetStudents.forEach(student => {
-        const row = [
-            `"${student.name}"`,
-            student.rollNumber,
-            attendance[student.id] || 'PRESENT',
-            selectedDate,
-            `Period ${period}`,
-            `"${entry.subject}"`,
-            `"${entry.room || entry.venue || ''}"`
-        ];
+    sortedStudents.forEach(student => {
+        const row = [`"${student.name}"`, student.rollNumber, attendance[student.id] || 'PRESENT', selectedDate, `Period ${period}`, `"${entry.subject}"`, `"${entry.room || entry.venue || ''}"`];
         csvContent += row.join(",") + "\n";
     });
-
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -148,6 +164,11 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
     link.click();
     document.body.removeChild(link);
   };
+
+  const hasExistingRecords = useMemo(() => {
+      if (!activeClassId) return false;
+      return getAttendanceForPeriod(selectedDate, activeClassId, period).length > 0;
+  }, [getAttendanceForPeriod, selectedDate, activeClassId, period]);
 
   if (!isOpen) return null;
 
@@ -159,7 +180,20 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
         <div className="p-6 border-b border-slate-100 bg-white space-y-4">
           <div className="flex items-start justify-between">
             <div>
-              <h2 className="text-2xl font-black text-slate-800 tracking-tight">{entry.subject} Registry</h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-black text-slate-800 tracking-tight">{entry.subject} Registry</h2>
+                {!isDirty && hasExistingRecords && (
+                    <div className="flex items-center gap-1.5 bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest animate-in zoom-in-90 fade-in duration-300">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Recorded
+                    </div>
+                )}
+                {isDirty && (
+                    <div className="flex items-center gap-1.5 bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest animate-in slide-in-from-left-2 duration-300">
+                        Pending Changes
+                    </div>
+                )}
+              </div>
               <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-600">
                 <span className="flex items-center font-bold bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 text-slate-600">
                     <Clock className="w-3.5 h-3.5 mr-1.5 text-slate-400"/> P{period} • {day}
@@ -178,7 +212,6 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
 
           <div className="flex flex-col sm:flex-row gap-4 justify-between items-center pt-2">
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                 {/* Class Selector for Combined Sessions */}
                  {rosterOptions.length > 1 && (
                      <div className="relative">
                         <label className="absolute -top-2 left-2 px-1 bg-white text-[9px] font-black text-blue-500 uppercase tracking-widest z-10">Select Class Register</label>
@@ -224,9 +257,9 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] opacity-20 pointer-events-none"></div>
 
           {activeClassId ? (
-              targetStudents.length > 0 ? (
+              sortedStudents.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative z-10">
-                  {targetStudents.map((student) => (
+                  {sortedStudents.map((student) => (
                     <div 
                       key={student.id}
                       onClick={() => toggleStatus(student.id)}
@@ -235,12 +268,16 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                       }`}
                     >
                       <div className="flex items-center gap-3 overflow-hidden">
-                        <div className="w-10 h-10 shrink-0 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-xs font-black text-slate-400 shadow-sm">
-                            {student.rollNumber.slice(-3)}
+                        <div className="w-12 h-12 shrink-0 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-base font-black text-slate-700 shadow-sm group-hover:bg-slate-900 group-hover:text-white transition-all">
+                            {student.rollNumber || ''}
                         </div>
                         <div className="overflow-hidden">
-                          <p className="font-bold text-slate-800 text-sm truncate">{student.name}</p>
-                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wide opacity-70">Roll: {student.rollNumber}</p>
+                          <p className="font-black text-slate-800 text-base truncate">{student.name}</p>
+                          {student.admissionNumber && (
+                            <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mt-0.5">
+                              ADM NO: {student.admissionNumber}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -273,15 +310,15 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
 
         <div className="p-4 bg-white border-t border-slate-100 flex justify-between items-center z-20">
             <div className="text-xs font-bold text-slate-400 pl-2">
-                {targetStudents.length} Students in {activeClass?.name}
+                {sortedStudents.length} Students in {activeClass?.name}
             </div>
             <button 
                 onClick={handleSave}
-                disabled={!activeClassId || targetStudents.length === 0}
-                className="px-8 py-3 bg-slate-900 text-white rounded-xl text-sm font-bold shadow-lg hover:bg-slate-800 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center"
+                disabled={!activeClassId || sortedStudents.length === 0}
+                className={`px-8 py-3 rounded-xl text-sm font-black uppercase tracking-[0.2em] shadow-lg transition-all flex items-center gap-3 active:scale-95 disabled:opacity-50 ${isSaved && !isDirty ? 'bg-emerald-600 text-white shadow-emerald-200' : 'bg-slate-900 text-white shadow-slate-200 hover:bg-slate-800'}`}
             >
-                {isSaved ? <Check className="w-4 h-4 mr-2" /> : null}
-                {isSaved ? 'Attendance Saved' : 'Save Registry'}
+                {isSaved && !isDirty ? <CheckCircle2 className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                {isSaved && !isDirty ? 'Attendance Recorded' : isDirty ? 'Save Pending Changes' : 'Save Registry'}
             </button>
         </div>
       </div>

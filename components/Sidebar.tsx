@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, Users, GraduationCap, Calendar, MessageSquare, Settings, Cloud, Zap, RefreshCw, AlertCircle, Database } from 'lucide-react';
+import { LayoutDashboard, Users, GraduationCap, Calendar, MessageSquare, Settings, Cloud, Zap, RefreshCw, AlertCircle, Database, Flame } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 
 interface SidebarProps {
@@ -11,16 +11,18 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen }) => {
-  const { schoolName, syncInfo, forceSync, firebaseConfig } = useData();
+  const { schoolName, syncInfo, forceSync, userRole } = useData();
+
+  const isAdmin = userRole === 'ADMIN' || userRole === 'STANDALONE';
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'classes', label: 'Classes', icon: GraduationCap },
     { id: 'teachers', label: 'Teachers', icon: Users },
     { id: 'attendance', label: 'Attendance Log', icon: Calendar },
-    { id: 'assistant', label: 'AI Assistant', icon: MessageSquare },
-    { id: 'settings', label: 'Settings', icon: Settings },
-  ];
+    { id: 'assistant', label: 'AI Assistant', icon: MessageSquare, hidden: !isAdmin },
+    { id: 'settings', label: 'Settings', icon: Settings, hidden: !isAdmin },
+  ].filter(item => !item.hidden);
 
   const handleNavClick = (id: string) => {
     setActiveTab(id);
@@ -75,26 +77,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <div className={`w-2.5 h-2.5 rounded-full ${
-                                    syncInfo.connectionState === 'CONNECTED' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                                    syncInfo.connectionState === 'CONNECTED' ? 'bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.6)] animate-pulse' :
                                     syncInfo.connectionState === 'SYNCING' ? 'bg-blue-500 animate-pulse' :
                                     syncInfo.connectionState === 'ERROR' ? 'bg-rose-500' : 'bg-slate-300'
                                 }`}></div>
                                 <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
-                                    {syncInfo.connectionState === 'SYNCING' ? 'Syncing...' : 'Firebase Cloud'}
+                                    {syncInfo.connectionState === 'SYNCING' ? 'Syncing...' : 'Realtime Cloud'}
                                 </span>
                             </div>
-                            <button 
-                                onClick={() => forceSync()}
-                                className="p-1 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-blue-600 transition-all"
-                                title="Sync Now"
-                            >
-                                <RefreshCw className={`w-3.5 h-3.5 ${syncInfo.connectionState === 'SYNCING' ? 'animate-spin' : ''}`} />
-                            </button>
                         </div>
                         <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
                             <div className="flex items-center gap-1.5 truncate">
-                                <Database className={`w-3 h-3 shrink-0 ${syncInfo.connectionState === 'CONNECTED' ? 'text-blue-400' : ''}`} />
-                                <span className="truncate">Cloud: {syncInfo.schoolId?.slice(-6) || 'None'}</span>
+                                <Flame className={`w-3 h-3 shrink-0 ${syncInfo.connectionState === 'CONNECTED' ? 'text-orange-500' : ''}`} />
+                                <span className="truncate">Node: {syncInfo.schoolId?.slice(-6) || 'None'}</span>
                             </div>
                             {syncInfo.connectionState === 'ERROR' && <AlertCircle className="w-3 h-3 text-rose-500" />}
                         </div>

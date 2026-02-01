@@ -78,7 +78,7 @@ export const Assistant: React.FC = () => {
                                 data.addStudent({
                                     id: `student-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                                     name: args.name || "Unnamed Student",
-                                    rollNumber: args.rollNumber || `R-${Date.now()}`,
+                                    rollNumber: args.rollNumber || '',
                                     classId: args.classId || ''
                                 });
                             } else if (args.action === 'delete' && args.id) {
@@ -145,7 +145,7 @@ export const Assistant: React.FC = () => {
               }`}>
                 {msg.text.split('\n').map((line, i) => <p key={i} className="mb-2 last:mb-0">{line}</p>)}
                 <span className={`text-[9px] font-bold mt-4 block opacity-40 uppercase tracking-widest ${msg.role === 'user' ? 'text-white' : 'text-slate-400'}`}>
-                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {msg.timestamp.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
                 </span>
               </div>
             </div>

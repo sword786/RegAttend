@@ -1,88 +1,149 @@
 
 import { GoogleGenAI, Type, FunctionDeclaration, GenerateContentResponse } from "@google/genai";
-import { AiImportResult } from '../types';
+import { AiImportResult, AiStudentImportResult } from '../types';
 
 const TIMETABLE_SYSTEM_INSTRUCTION = `
-    You are a professional School Timetable Digitizer and Data Architect. 
-    Your goal: Process documents to create a 100% COMPLETE and unified digital school schedule.
+    You are a professional School Timetable Digitizer. 
+    Extract data from the provided timetable documents into a structured JSON format.
+    
+    Output Structure:
+    {
+      "profiles": [
+        {
+          "name": "Teacher or Class Name",
+          "type": "TEACHER" or "CLASS",
+          "shortCode": "Code (optional)",
+          "schedule": {
+            "Mon": {
+              "1": { "subject": "MATH", "room": "101", "teacherOrClass": "Grade 10" },
+              "2": { "subject": "ENG", "room": "102", "teacherOrClass": "Grade 10" }
+            }
+          }
+        }
+      ]
+    }
+
+    Rules:
+    1. Days must be: Mon, Tue, Wed, Thu, Fri, Sat, Sun.
+    2. Periods are integers (1-9).
+    3. Extract every profile found.
 `;
+
+const STUDENT_ROSTER_SYSTEM_INSTRUCTION = `
+    You are a Student Roster Intelligence Engine. Your goal is to convert document data (text, images, or PDFs) into a clean student list.
+    Extract: Name, Roll Number, Admission Number, and the Class/Grade.
+    
+    Output Structure:
+    {
+      "students": [
+        {
+          "name": "Full Name",
+          "rollNumber": "Class list position (string)",
+          "admissionNumber": "Unique ID / ADM (string)",
+          "className": "The specific class identifier (e.g., '10A', 'Grade 5', '7B')"
+        }
+      ]
+    }
+
+    Rules:
+    1. If the input is a text/CSV representation of a spreadsheet, map columns correctly.
+    2. If multiple classes exist in one document, identify the correct class for each row.
+    3. Be precise. Use null/empty string if a field is truly missing.
+`;
+
+const cleanErrorMessage = (error: any): string => {
+    const msg = error?.message || String(error);
+    if (msg.includes('Rpc failed') || msg.includes('xhr error') || msg.includes('fetch failed')) {
+        return "Network connection to AI service failed. Please check your internet connection.";
+    }
+    if (msg.includes('400') || msg.includes('INVALID_ARGUMENT')) {
+        return "The document format is invalid or too large.";
+    }
+    return "AI Service Error: " + msg;
+};
 
 export const processTimetableImport = async (inputs: { 
   base64: string, 
   mimeType: string,
   label: 'TEACHER' | 'CLASS'
 }[]): Promise<AiImportResult | null> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey || apiKey.includes("your_api_key")) {
+    throw new Error("Missing API Key.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const contentParts: any[] = inputs.map((input, index) => ([
+    { inlineData: { data: input.base64, mimeType: input.mimeType } },
+    { text: `Document ${index + 1} (${input.label} TIMETABLE): Extract all schedule data.` }
+  ])).flat();
+
   try {
-    const contentParts: any[] = inputs.map((input, index) => ([
-      { inlineData: { data: input.base64, mimeType: input.mimeType } },
-      { text: `DOCUMENT ${index + 1} (${input.label} TIMETABLE): Extract every single individual schedule from this document.` }
-    ])).flat();
-
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: { parts: contentParts },
-      config: {
-        systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            profiles: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  type: { type: Type.STRING },
-                  shortCode: { type: Type.STRING },
-                  schedule: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        day: { type: Type.STRING },
-                        period: { type: Type.INTEGER },
-                        subject: { type: Type.STRING },
-                        room: { type: Type.STRING },
-                        teacherOrClass: { type: Type.STRING }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: [{ role: 'user', parts: contentParts }],
+        config: {
+          systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
+          responseMimeType: "application/json"
         }
-      }
-    });
+      });
 
-    const data = JSON.parse(response.text || '{}');
-    const processedProfiles = (data.profiles || []).map((p: any) => ({
-        name: p.name,
-        type: p.type.toUpperCase() === 'TEACHER' ? 'TEACHER' : 'CLASS',
-        shortCode: p.shortCode,
-        schedule: convertArrayToSchedule(p.schedule)
-    }));
-    return { profiles: processedProfiles };
-  } catch (error) {
-    console.error(error);
-    throw error;
+      if (!response.text) {
+          throw new Error("AI returned empty response.");
+      }
+
+      const data = JSON.parse(response.text);
+
+      const processedProfiles = (data.profiles || []).map((p: any) => ({
+          name: p.name,
+          type: (p.type && p.type.toUpperCase().includes('TEACHER')) ? 'TEACHER' : 'CLASS',
+          shortCode: p.shortCode || p.name.substring(0, 3).toUpperCase(),
+          schedule: p.schedule || {}
+      }));
+      return { profiles: processedProfiles };
+
+  } catch (error: any) {
+      console.error("AI Import Failed:", error);
+      throw new Error(cleanErrorMessage(error));
   }
 };
 
-const convertArrayToSchedule = (entries: any[]) => {
-    const newSchedule: any = {};
-    if (!Array.isArray(entries)) return {};
-    entries.forEach(entry => {
-        if (!newSchedule[entry.day]) newSchedule[entry.day] = {};
-        newSchedule[entry.day][entry.period] = {
-            subject: entry.subject?.toUpperCase(),
-            room: entry.room || '',
-            teacherOrClass: entry.teacherOrClass || ''
-        };
-    });
-    return newSchedule;
+export const processStudentImport = async (inputs: { 
+  base64?: string, 
+  mimeType?: string,
+  text?: string 
+}[]): Promise<AiStudentImportResult | null> => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("Missing API Key.");
+
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const contentParts: any[] = inputs.map((input) => {
+    if (input.text) {
+        return { text: `Analyze this spreadsheet text data:\n${input.text}` };
+    } else if (input.base64) {
+        return { inlineData: { data: input.base64, mimeType: input.mimeType! } };
+    }
+    return null;
+  }).filter(p => p !== null);
+
+  try {
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: [{ role: 'user', parts: contentParts }],
+        config: {
+          systemInstruction: STUDENT_ROSTER_SYSTEM_INSTRUCTION,
+          responseMimeType: "application/json"
+        }
+      });
+
+      if (!response.text) throw new Error("AI returned empty response.");
+      return JSON.parse(response.text);
+  } catch (error: any) {
+      console.error("AI Student Import Failed:", error);
+      throw new Error(cleanErrorMessage(error));
+  }
 };
 
 export const ASSISTANT_TOOLS: FunctionDeclaration[] = [
@@ -146,7 +207,10 @@ export const ASSISTANT_TOOLS: FunctionDeclaration[] = [
 ];
 
 export const generateAiResponseWithTools = async (userPrompt: string, history: any[], dataContext: any) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("API Key is missing.");
+
+  const ai = new GoogleGenAI({ apiKey });
   
   const currentContext = `
     CURRENT APP STATE:
@@ -156,7 +220,7 @@ export const generateAiResponseWithTools = async (userPrompt: string, history: a
   `;
 
   return ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3-flash-preview',
     contents: [
         { role: 'user', parts: [{ text: currentContext }] },
         ...history,

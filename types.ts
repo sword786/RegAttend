@@ -1,6 +1,7 @@
 
-
 export type DayOfWeek = 'Sat' | 'Sun' | 'Mon' | 'Tue' | 'Wed' | 'Thu';
+
+export type UserRole = 'ADMIN' | 'TEACHER' | 'STANDALONE';
 
 export interface TimeSlot {
   period: number;
@@ -12,8 +13,9 @@ export interface TimetableEntry {
   room?: string;
   teacherOrClass?: string;
   type?: 'split' | 'combined' | 'normal';
-  teachers?: string[];
-  targetClasses?: string[];
+  targetClasses?: string[]; 
+  splitSubject?: string;
+  splitTeacher?: string;
   venue?: string;
 }
 
@@ -32,6 +34,9 @@ export interface Student {
   name: string;
   rollNumber: string;
   classId: string;
+  admissionNumber?: string;
+  classNumber?: string;
+  group?: 'A' | 'B' | string;
 }
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
@@ -42,6 +47,7 @@ export interface AttendanceRecord {
   entityId: string;
   studentId: string;
   status: AttendanceStatus;
+  subject?: string;
 }
 
 export interface ChatMessage {
@@ -59,18 +65,28 @@ export interface RawAiProfile {
   schedule: WeeklySchedule;
 }
 
+export interface RawAiStudent {
+  name: string;
+  rollNumber?: string;
+  admissionNumber?: string;
+  className?: string;
+}
+
 export interface AiImportResult {
   profiles: RawAiProfile[];
   rawTextResponse?: string;
 }
 
-// REAL-TIME SYNC TYPES
+export interface AiStudentImportResult {
+  students: RawAiStudent[];
+}
+
 export type SyncConnectionState = 'OFFLINE' | 'CONNECTING' | 'CONNECTED' | 'SYNCING' | 'ERROR';
 
 export interface SyncMetadata {
   isPaired: boolean;
   pairCode: string | null;
-  role: 'ADMIN' | 'TEACHER' | 'STANDALONE';
+  role: UserRole;
   lastSync: string | null;
   schoolId: string | null;
   deviceId: string | null;
@@ -86,17 +102,3 @@ export const createEmptySchedule = (): WeeklySchedule => ({
   'Wed': {},
   'Thu': {}
 });
-
-// Fix for window.aistudio build error
-// Defining AIStudio globally and using it in Window ensures compatibility with the platform's pre-defined types.
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-
-  interface Window {
-    // Added readonly modifier to fix the identical modifiers error by matching global platform declarations.
-    readonly aistudio: AIStudio;
-  }
-}
