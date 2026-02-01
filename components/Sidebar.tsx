@@ -11,7 +11,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen }) => {
-  const { schoolName, syncInfo, forceSync, userRole } = useData();
+  const { schoolName, syncInfo, userRole } = useData();
 
   const isAdmin = userRole === 'ADMIN' || userRole === 'STANDALONE';
 
@@ -52,18 +52,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
             <nav className="p-4 space-y-2 mt-4 flex-1 overflow-y-auto scrollbar-hide">
             {menuItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = activeTab === item.id;
+                const isAdminItem = activeTab === item.id;
                 return (
                 <button
                     key={item.id}
                     onClick={() => handleNavClick(item.id)}
                     className={`flex items-center w-full px-4 py-3.5 text-sm font-bold rounded-xl transition-all duration-200 group ${
-                    isActive 
+                    isAdminItem 
                         ? 'bg-blue-50 text-blue-600 shadow-sm' 
                         : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                     }`}
                 >
-                    <Icon className={`w-5 h-5 mr-3 transition-colors ${isActive ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                    <Icon className={`w-5 h-5 mr-3 transition-colors ${isAdminItem ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'}`} />
                     {item.label}
                 </button>
                 );
