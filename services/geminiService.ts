@@ -3,25 +3,24 @@ import { GoogleGenAI, Type, FunctionDeclaration, GenerateContentResponse } from 
 import { AiImportResult, AiStudentImportResult } from '../types';
 
 const TIMETABLE_SYSTEM_INSTRUCTION = `
-    You are the "Zero-Loss School Timetable Architect". Your absolute priority is 100% data integrity. 
-    You must convert document images/PDFs into a high-fidelity JSON registry.
-
-    EXTRACTION MANDATE:
-    1. EXHAUSTIVE SCAN: Scan the document row-by-row and column-by-column. Do not summarize. Do not skip "repetitive" rows.
-    2. REGISTRY CODES: Every cell usually contains a Subject Code (e.g., ENG, MTH) and a Target Code (e.g., 10A, Grade 5). You MUST extract these exact codes. If only a full name is present, generate a 3-letter code.
-    3. PROFILES: Every unique Teacher or Class mentioned in the document MUST have its own profile entry.
-    4. WEEK STRUCTURE: Use Sat, Sun, Mon, Tue, Wed, Thu.
-    5. PERIODS: Map strictly to periods 1-9.
-    6. COMPLEX SESSIONS:
-       - "Split": Two subjects/teachers in one cell.
-       - "Combined": Multiple classes (e.g. 10A/10B) in one cell.
+    You are the "Master Institutional Data Architect". Your mission is a 100% COMPLETE AND EXHAUSTIVE extraction of school timetable documents. 
     
-    CRITICAL OUTPUT FORMAT:
-    Return ONLY a valid JSON object. 
+    EXTRACTION PROTOCOL:
+    1. SCANNING: You must scan the document row-by-row and column-by-column. 
+    2. ZERO SKIP POLICY: Do not skip rows that look similar. Every teacher and every class shown MUST be extracted.
+    3. REGISTRY CODES: Every cell contains a Subject (e.g. ENG) and a Code (e.g. 10A). You MUST extract both. If a code is not explicit, derive a consistent 3-4 letter code for that teacher or class.
+    4. WEEK ALIGNMENT: Use exactly these keys: "Sat", "Sun", "Mon", "Tue", "Wed", "Thu".
+    5. PERIOD MAPPING: Map data strictly to periods 1 through 9.
+    6. COMPLEX SESSIONS:
+       - Detect "Split" sessions (multiple subjects/teachers in one box).
+       - Detect "Combined" sessions (one teacher with multiple classes, e.g. 10A/10B).
+
+    JSON SCHEMA MANDATE:
+    Return ONLY valid JSON.
     {
       "profiles": [
         {
-          "name": "Full Name",
+          "name": "Full Entity Name",
           "type": "TEACHER" | "CLASS",
           "shortCode": "MTH", 
           "schedule": {
@@ -32,6 +31,8 @@ const TIMETABLE_SYSTEM_INSTRUCTION = `
         }
       ]
     }
+
+    INTERNAL AUDIT: Before generating the JSON, mentally count every row in the image and ensure every row has a matching object in the "profiles" array.
 `;
 
 const STUDENT_ROSTER_SYSTEM_INSTRUCTION = `
@@ -54,21 +55,21 @@ export const processTimetableImport = async (inputs: {
   const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("Missing API Key.");
 
+  // Using Flash for Vercel speed and reliability, but with enhanced instructions
   const ai = new GoogleGenAI({ apiKey });
   
   const contentParts = inputs.map((input, index) => ([
     { inlineData: { data: input.base64, mimeType: input.mimeType } },
-    { text: `DOCUMENT ${index + 1} (${input.label} LIST): Extract every single period and code without omission.` }
+    { text: `DOCUMENT ${index + 1} (${input.label} LIST): Extract every single period and registry code. Do not skip any rows or columns. This is a high-priority institutional audit.` }
   ])).flat();
 
   try {
       const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3-flash-preview',
         contents: [{ role: 'user', parts: contentParts }],
         config: {
           systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
           responseMimeType: "application/json",
-          // Give the model a budget to "think" and verify its own extraction
           thinkingConfig: { thinkingBudget: 4096 }
         }
       });
