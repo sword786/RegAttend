@@ -392,11 +392,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setAiImportStatus('REVIEW'); 
         } else { 
           setAiImportStatus('ERROR'); 
-          setAiImportErrorMessage("No profiles detected in the provided documents."); 
+          setAiImportErrorMessage("No profiles detected."); 
         }
     } catch (err: any) { 
       setAiImportStatus('ERROR'); 
-      setAiImportErrorMessage(err.message || "Failed to process documents with AI."); 
+      setAiImportErrorMessage(err.message); 
     }
   };
 
@@ -405,14 +405,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
         const payload: { base64?: string, mimeType?: string, text?: string }[] = [];
         for (const f of files) {
-            const isExcel = f.name.endsWith('.xlsx') || f.name.endsWith('.xls');
+            const isExcel = f.name.match(/\.(xlsx|xls|csv)$/i);
             if (isExcel) {
                 const data = await f.arrayBuffer();
                 const workbook = XLSX.read(data);
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
+                const firstSheet = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheet];
                 const csvData = XLSX.utils.sheet_to_csv(worksheet);
-                payload.push({ text: `Roster File Content (${f.name}):\n${csvData}` });
+                payload.push({ text: `Content of ${f.name}:\n${csvData}` });
             } else {
                 const base64 = await new Promise<string>((resolve) => {
                     const reader = new FileReader();
@@ -445,25 +445,21 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }));
     addEntities(newEntities);
     setAiImportStatus('COMPLETED');
-    setAiImportResult(null);
   };
 
   const finalizeStudentAiImport = (targetClassId?: string) => {
     if (!studentAiImportResult) return;
-    
     const classEntities = entities.filter(e => e.type === 'CLASS');
     
     const newStuds: Student[] = studentAiImportResult.students.map((s, idx) => {
         let resolvedClassId = targetClassId || '';
-        
         if (!targetClassId && s.className) {
-            const matchedClass = classEntities.find(c => 
+            const matched = classEntities.find(c => 
                 c.name.toLowerCase().includes(s.className!.toLowerCase()) || 
                 (c.shortCode && s.className!.toLowerCase().includes(c.shortCode.toLowerCase()))
             );
-            if (matchedClass) resolvedClassId = matchedClass.id;
+            if (matched) resolvedClassId = matched.id;
         }
-
         return {
             id: `student-${Date.now()}-${idx}`,
             name: s.name,
@@ -473,10 +469,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             classNumber: s.rollNumber
         };
     });
-    
     addStudents(newStuds);
     setStudentAiImportStatus('COMPLETED');
-    setStudentAiImportResult(null);
   };
 
   const importSyncToken = async (token: string): Promise<boolean> => {
@@ -484,8 +478,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const json = decodeURIComponent(escape(atob(token)));
       const decoded = JSON.parse(json);
-      if (!decoded.schoolName || !decoded.entities) return false;
-      
+      if (!decoded.schoolName) return false;
       setSchoolName(decoded.schoolName);
       setAcademicYear(decoded.academicYear || '2025');
       if (decoded.primaryColor) setPrimaryColor(decoded.primaryColor);
@@ -493,20 +486,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setStudents(decoded.students || []);
       setTimeSlots(decoded.timeSlots || DEFAULT_TIME_SLOTS);
       setAttendanceRecords(decoded.attendanceRecords || []);
-      
-      if (decoded.firebaseConfig) { 
-        setFirebaseConfigState(decoded.firebaseConfig); 
-        initFirebase(decoded.firebaseConfig); 
-      }
-      
-      setSyncInfo(prev => ({ 
-        ...prev, 
-        isPaired: true, 
-        role: 'TEACHER', 
-        lastSync: new Date().toISOString(), 
-        schoolId: decoded.masterId, 
-        connectionState: 'CONNECTED' 
-      }));
+      if (decoded.firebaseConfig) { setFirebaseConfigState(decoded.firebaseConfig); initFirebase(decoded.firebaseConfig); }
+      setSyncInfo(prev => ({ ...prev, isPaired: true, role: 'TEACHER', schoolId: decoded.masterId, connectionState: 'CONNECTED' }));
       return true;
     } catch (e) { 
       setSyncInfo(prev => ({ ...prev, connectionState: 'ERROR' })); 
@@ -516,16 +497,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const resetData = () => { 
     setSchoolName('Mupini Combined School'); 
-    setAcademicYear('2025'); 
-    setPrimaryColor('#3b82f6');
     setEntities(DEFAULT_DATA); 
     setStudents(DEFAULT_STUDENTS); 
     setTimeSlots(DEFAULT_TIME_SLOTS); 
-    setAttendanceRecords([]); 
-    setFirebaseConfigState(null); 
-    setUserRoleState(null);
-    setSyncInfo(prev => ({ ...prev, isPaired: false, role: 'STANDALONE', connectionState: 'OFFLINE' }));
     localStorage.clear();
+    setSyncInfo(prev => ({ ...prev, isPaired: false, connectionState: 'OFFLINE' }));
   };
 
   const logout = () => {
@@ -535,37 +511,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const generateSyncToken = () => {
     const masterId = syncInfo.schoolId || `sch-${Math.random().toString(36).substr(2, 9)}`;
     setSyncInfo(p => ({ ...p, isPaired: true, role: 'ADMIN', lastSync: new Date().toISOString(), schoolId: masterId, connectionState: 'CONNECTED' }));
-    
-    if (firebaseConfig) {
-      FirebaseSync.setFullState(masterId, { schoolName, academicYear, entities, students, timeSlots, attendanceRecords, primaryColor });
-    }
-
-    return btoa(unescape(encodeURIComponent(JSON.stringify({ 
-      v: "v2", 
-      schoolName, 
-      academicYear, 
-      entities, 
-      students, 
-      timeSlots, 
-      masterId, 
-      firebaseConfig,
-      primaryColor
-    }))));
+    if (firebaseConfig) FirebaseSync.setFullState(masterId, { schoolName, academicYear, entities, students, timeSlots, attendanceRecords, primaryColor });
+    return btoa(unescape(encodeURIComponent(JSON.stringify({ schoolName, academicYear, entities, students, timeSlots, masterId, firebaseConfig, primaryColor }))));
   };
 
   const getPairingToken = () => {
     if (!syncInfo.schoolId || !firebaseConfig) return '';
-    return btoa(unescape(encodeURIComponent(JSON.stringify({ 
-      v: "v2", 
-      schoolName, 
-      academicYear, 
-      entities, 
-      students, 
-      timeSlots, 
-      masterId: syncInfo.schoolId, 
-      firebaseConfig,
-      primaryColor
-    }))));
+    return btoa(unescape(encodeURIComponent(JSON.stringify({ schoolName, academicYear, entities, students, timeSlots, masterId: syncInfo.schoolId, firebaseConfig, primaryColor }))));
   };
 
   return (
@@ -575,19 +527,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       logout,
       syncInfo, firebaseConfig, 
       setFirebaseConfig: async (c) => { 
-        if (!c) {
-           setFirebaseConfigState(null);
-           await initFirebase(null);
-           return true;
-        }
         const success = await initFirebase(c);
-        if (success) {
-            setFirebaseConfigState(c); 
-            return true;
-        } else {
-            setFirebaseConfigState(null);
-            return false;
-        }
+        if (success) setFirebaseConfigState(c);
+        return success;
       },
       generateSyncToken,
       getPairingToken,
