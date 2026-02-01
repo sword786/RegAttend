@@ -11,7 +11,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileOpen, setIsMobileOpen }) => {
-  const { schoolName, syncInfo, forceSync, userRole } = useData();
+  const { schoolName, syncInfo, userRole } = useData();
 
   const isAdmin = userRole === 'ADMIN' || userRole === 'STANDALONE';
 
