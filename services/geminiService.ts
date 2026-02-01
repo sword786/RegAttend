@@ -3,30 +3,38 @@ import { GoogleGenAI, Type, FunctionDeclaration, GenerateContentResponse } from 
 import { AiImportResult, AiStudentImportResult } from '../types';
 
 const TIMETABLE_SYSTEM_INSTRUCTION = `
-    You are a professional School Timetable Digitizer. 
-    Extract data from the provided timetable documents into a structured JSON format.
+    You are a professional School Timetable Digitizer specializing in exhaustive data extraction. 
+    Your mission is to perform a ZERO-LOSS conversion of document images/PDFs into a structured JSON registry.
+    
+    CRITICAL RULES:
+    1. EXTRACT EVERYTHING: If a teacher or class appears anywhere in the document, they MUST have a profile in the JSON. Do not skip anyone.
+    2. CODES: Prioritize extracting specific short codes (e.g., "MATH", "ENG", "10B", "Rm 4"). If a cell contains "Grade 10A - Biology", the name is "Biology" and the class is "10A".
+    3. WEEK ALIGNMENT: The school operates on a Saturday to Thursday week. Use ONLY these keys: "Sat", "Sun", "Mon", "Tue", "Wed", "Thu".
+    4. PERIODS: Map data to periods 1 through 9.
+    5. SESSION TYPES: 
+       - If a cell mentions two teachers or two subjects, mark type as "split".
+       - If a cell mentions multiple classes (e.g., "10A/10B"), mark type as "combined" and list targetClasses.
     
     Output Structure:
     {
       "profiles": [
         {
-          "name": "Teacher or Class Name",
+          "name": "Full Name of Teacher or Class",
           "type": "TEACHER" or "CLASS",
-          "shortCode": "Code (optional)",
+          "shortCode": "Visible Registry Code (MUST extract if visible)",
           "schedule": {
-            "Mon": {
-              "1": { "subject": "MATH", "room": "101", "teacherOrClass": "Grade 10" },
-              "2": { "subject": "ENG", "room": "102", "teacherOrClass": "Grade 10" }
+            "Sun": {
+              "1": { "subject": "MATH", "room": "101", "teacherOrClass": "10A", "type": "normal" },
+              "2": { "subject": "SCI", "room": "Lab 1", "teacherOrClass": "10A", "type": "split", "splitSubject": "BIO", "splitTeacher": "Smith" }
             }
           }
         }
       ]
     }
 
-    Rules:
-    1. Days must be: Mon, Tue, Wed, Thu, Fri, Sat, Sun.
-    2. Periods are integers (1-9).
-    3. Extract every profile found.
+    Rules for Teacher vs Class:
+    - If the profile is a TEACHER, the "teacherOrClass" field in the schedule must be the CLASS they are teaching.
+    - If the profile is a CLASS, the "teacherOrClass" field in the schedule must be the TEACHER code or name.
 `;
 
 const STUDENT_ROSTER_SYSTEM_INSTRUCTION = `
@@ -72,16 +80,17 @@ export const processTimetableImport = async (inputs: {
     throw new Error("Missing API Key.");
   }
 
+  // Use Pro model for high-fidelity Timetable digitizing
   const ai = new GoogleGenAI({ apiKey });
   
   const contentParts: any[] = inputs.map((input, index) => ([
     { inlineData: { data: input.base64, mimeType: input.mimeType } },
-    { text: `Document ${index + 1} (${input.label} TIMETABLE): Extract all schedule data.` }
+    { text: `Document ${index + 1} (${input.label} TIMETABLE): Perform exhaustive extraction of all profiles and schedules visible in this image.` }
   ])).flat();
 
   try {
       const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: [{ role: 'user', parts: contentParts }],
         config: {
           systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
