@@ -85,7 +85,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>(() => loadStored('ts', DEFAULT_TIME_SLOTS, userRole));
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => loadStored('ar', [], userRole));
   const [firebaseConfig, setFirebaseConfigState] = useState<any>(() => loadStored('fb', null, userRole));
-  
   const [syncInfo, setSyncInfo] = useState<SyncMetadata>(() => {
     const sy = loadStored('sy', null, userRole);
     return {
@@ -113,8 +112,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const setUserRole = (newRole: UserRole) => {
     localStorage.setItem('mup_role', JSON.stringify(newRole));
     setUserRoleState(newRole);
+    const prefix = newRole === 'STANDALONE' ? 'local' : 'cloud';
     
-    // Switch state values based on the branch
     setSchoolName(loadStored('sn', 'Mupini Combined School', newRole));
     setAcademicYear(loadStored('ay', '2025', newRole));
     setPrimaryColor(loadStored('pc', '#3b82f6', newRole));
@@ -122,6 +121,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setStudents(loadStored('st', DEFAULT_STUDENTS, newRole));
     setTimeSlots(loadStored('ts', DEFAULT_TIME_SLOTS, newRole));
     setAttendanceRecords(loadStored('ar', [], newRole));
+    
     const fbCfg = loadStored('fb', null, newRole);
     setFirebaseConfigState(fbCfg);
     
@@ -137,34 +137,34 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     if (fbCfg) initFirebase(fbCfg);
-    else initFirebase(null);
   };
 
   useEffect(() => {
     if (userRole !== 'STANDALONE' && syncInfo.isPaired && syncInfo.schoolId && firebaseConfig) {
       const unsubscribe = FirebaseSync.subscribe(syncInfo.schoolId, (data) => {
-        if (skipFirebaseSync.current) {
-          skipFirebaseSync.current = false;
-          return;
+        if (skipFirebaseSync.current) { skipFirebaseSync.current = false; return; }
+        
+        // Organized mapping: Data is stored in folders to keep Admin console clean
+        if (data.metadata) {
+            if (data.metadata.schoolName) setSchoolName(data.metadata.schoolName);
+            if (data.metadata.academicYear) setAcademicYear(data.metadata.academicYear);
+            if (data.metadata.primaryColor) setPrimaryColor(data.metadata.primaryColor);
         }
-        if (data.schoolName) setSchoolName(data.schoolName);
-        if (data.academicYear) setAcademicYear(data.academicYear);
-        if (data.primaryColor) setPrimaryColor(data.primaryColor);
-        if (data.entities) setEntities(data.entities);
-        if (data.students) setStudents(data.students);
-        if (data.timeSlots) setTimeSlots(data.timeSlots);
-        if (data.attendanceRecords) setAttendanceRecords(data.attendanceRecords);
+        if (data.registry) {
+            if (data.registry.entities) setEntities(data.registry.entities);
+            if (data.registry.students) setStudents(data.registry.students);
+        }
+        if (data.timing?.timeSlots) setTimeSlots(data.timing.timeSlots);
+        if (data.attendance?.records) setAttendanceRecords(data.attendance.records);
+        
         setSyncInfo(prev => ({ ...prev, lastSync: new Date().toISOString() }));
       });
-      
+
       const connectionUnsub = FirebaseSync.monitorConnection((connected) => {
         setSyncInfo(prev => ({ ...prev, connectionState: connected ? 'CONNECTED' : 'CONNECTING' }));
       });
 
-      return () => {
-        unsubscribe();
-        connectionUnsub();
-      };
+      return () => { unsubscribe(); connectionUnsub(); };
     }
   }, [syncInfo.isPaired, syncInfo.schoolId, firebaseConfig, userRole]);
 
@@ -182,108 +182,58 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem(`mup_${prefix}_fb`, JSON.stringify(firebaseConfig));
   }, [schoolName, academicYear, primaryColor, entities, students, timeSlots, attendanceRecords, syncInfo, firebaseConfig, userRole, isInitialized]);
 
-  const pushToCloud = (path: string, data: any) => {
+  const pushToCloud = (folder: 'metadata' | 'registry' | 'timing' | 'attendance', field: string, data: any) => {
     if (userRole !== 'STANDALONE' && syncInfo.isPaired && syncInfo.schoolId) {
       skipFirebaseSync.current = true;
-      FirebaseSync.updateData(syncInfo.schoolId, path, data);
+      const path = `${folder}.${field}`;
+      FirebaseSync.updateData(syncInfo.schoolId, { [path]: data });
     }
   };
 
-  const updateSchoolName = (name: string) => { setSchoolName(name); pushToCloud('schoolName', name); };
-  const updateAcademicYear = (year: string) => { setAcademicYear(year); pushToCloud('academicYear', year); };
-  const updatePrimaryColor = (color: string) => { setPrimaryColor(color); pushToCloud('primaryColor', color); };
+  const updateSchoolName = (name: string) => { setSchoolName(name); pushToCloud('metadata', 'schoolName', name); };
+  const updateAcademicYear = (year: string) => { setAcademicYear(year); pushToCloud('metadata', 'academicYear', year); };
+  const updatePrimaryColor = (color: string) => { setPrimaryColor(color); pushToCloud('metadata', 'primaryColor', color); };
 
   const addEntity = (entity: EntityProfile) => {
-    setEntities(prev => {
-      const next = [...prev, entity];
-      pushToCloud('entities', next);
-      return next;
-    });
+    setEntities(prev => { const next = [...prev, entity]; pushToCloud('registry', 'entities', next); return next; });
   };
-
   const updateEntity = (id: string, updates: Partial<EntityProfile>) => {
-    setEntities(prev => {
-      const next = prev.map(e => e.id === id ? { ...e, ...updates } : e);
-      pushToCloud('entities', next);
-      return next;
-    });
+    setEntities(prev => { const next = prev.map(e => e.id === id ? { ...e, ...updates } : e); pushToCloud('registry', 'entities', next); return next; });
   };
-
   const deleteEntity = (id: string) => {
-    setEntities(prev => {
-      const next = prev.filter(e => e.id !== id);
-      pushToCloud('entities', next);
-      return next;
-    });
+    setEntities(prev => { const next = prev.filter(e => e.id !== id); pushToCloud('registry', 'entities', next); return next; });
   };
-
   const addStudent = (student: Student) => {
-    setStudents(prev => {
-      const next = [...prev, student];
-      pushToCloud('students', next);
-      return next;
-    });
+    setStudents(prev => { const next = [...prev, student]; pushToCloud('registry', 'students', next); return next; });
   };
-
   const addStudents = (newStudents: Student[]) => {
-    setStudents(prev => {
-      const next = [...prev, ...newStudents];
-      pushToCloud('students', next);
-      return next;
-    });
+    setStudents(prev => { const next = [...prev, ...newStudents]; pushToCloud('registry', 'students', next); return next; });
   };
-
   const updateStudent = (id: string, updates: Partial<Student>) => {
-    setStudents(prev => {
-      const next = prev.map(s => s.id === id ? { ...s, ...updates } : s);
-      pushToCloud('students', next);
-      return next;
-    });
+    setStudents(prev => { const next = prev.map(s => s.id === id ? { ...s, ...updates } : s); pushToCloud('registry', 'students', next); return next; });
   };
-
   const deleteStudent = (id: string) => {
-    setStudents(prev => {
-      const next = prev.filter(s => s.id !== id);
-      pushToCloud('students', next);
-      return next;
-    });
+    setStudents(prev => { const next = prev.filter(s => s.id !== id); pushToCloud('registry', 'students', next); return next; });
   };
-
   const updateTimeSlots = (newTimeSlots: TimeSlot[]) => {
-    setTimeSlots(newTimeSlots);
-    pushToCloud('timeSlots', newTimeSlots);
+    setTimeSlots(newTimeSlots); pushToCloud('timing', 'timeSlots', newTimeSlots);
   };
-
   const deleteTimeSlot = (period: number) => {
-    setTimeSlots(prev => {
-      const next = prev.filter(s => s.period !== period);
-      pushToCloud('timeSlots', next);
-      return next;
-    });
+    setTimeSlots(prev => { const next = prev.filter(s => s.period !== period); pushToCloud('timing', 'timeSlots', next); return next; });
   };
-
   const updateSchedule = (entityId: string, day: string, period: number, entry: TimetableEntry | null) => {
     setEntities(prev => {
       const dayKey = day as DayOfWeek;
       const currentEntity = prev.find(e => e.id === entityId);
       if (!currentEntity) return prev;
-
-      let updatedEntities = prev.map(e => e.id === entityId ? {
-        ...e,
-        schedule: { ...createEmptySchedule(), ...(e.schedule || {}), [dayKey]: { ...(e.schedule?.[dayKey] || {}), [period]: entry } }
-      } : e);
-
+      let updatedEntities = prev.map(e => e.id === entityId ? { ...e, schedule: { ...createEmptySchedule(), ...(e.schedule || {}), [dayKey]: { ...(e.schedule?.[dayKey] || {}), [period]: entry } } } : e);
       const sourceCode = currentEntity.shortCode || currentEntity.name;
       const targetCode = entry?.teacherOrClass;
-
       if (entry && targetCode) {
         const targetIdx = updatedEntities.findIndex(e => e.type !== currentEntity.type && (e.shortCode === targetCode || e.name === targetCode));
         if (targetIdx !== -1) {
           const target = updatedEntities[targetIdx];
-          updatedEntities[targetIdx] = {
-            ...target,
-            schedule: { ...createEmptySchedule(), ...(target.schedule || {}), [dayKey]: { ...(target.schedule?.[dayKey] || {}), [period]: { subject: entry.subject, room: entry.room, teacherOrClass: sourceCode, type: entry.type } } }
-          };
+          updatedEntities[targetIdx] = { ...target, schedule: { ...createEmptySchedule(), ...(target.schedule || {}), [dayKey]: { ...(target.schedule?.[dayKey] || {}), [period]: { subject: entry.subject, room: entry.room, teacherOrClass: sourceCode, type: entry.type } } } };
         }
       } else if (entry === null) {
           const prevEntry = currentEntity.schedule?.[dayKey]?.[period];
@@ -297,20 +247,18 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               }
           }
       }
-      pushToCloud('entities', updatedEntities);
+      pushToCloud('registry', 'entities', updatedEntities);
       return updatedEntities;
     });
   };
-
   const markAttendance = (newRecords: AttendanceRecord[]) => {
     setAttendanceRecords(prev => {
       const filtered = prev.filter(r => !newRecords.some(nr => nr.date === r.date && nr.period === r.period && nr.studentId === r.studentId));
       const next = [...filtered, ...newRecords];
-      pushToCloud('attendanceRecords', next);
+      pushToCloud('attendance', 'records', next);
       return next;
     });
   };
-
   const getAttendanceForPeriod = useCallback((date: string, entityId: string, period: number) => {
     return attendanceRecords.filter(r => r.date === date && (r.entityId === entityId) && r.period === period);
   }, [attendanceRecords]);
@@ -321,8 +269,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const payload: any[] = [];
         for (const item of files) {
             const base64 = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.readAsDataURL(item.file);
+                const reader = new FileReader(); reader.readAsDataURL(item.file);
                 reader.onload = () => resolve((reader.result as string).split(',')[1]);
             });
             payload.push({ base64, mimeType: item.file.type, label: item.label });
@@ -339,14 +286,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const payload: any[] = [];
         for (const f of files) {
             if (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')) {
-                const data = await f.arrayBuffer();
-                const workbook = XLSX.read(data);
+                const data = await f.arrayBuffer(); const workbook = XLSX.read(data);
                 const csvData = XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]]);
                 payload.push({ text: `Roster (${f.name}):\n${csvData}` });
             } else {
                 const base64 = await new Promise<string>((resolve) => {
-                    const reader = new FileReader();
-                    reader.readAsDataURL(f);
+                    const reader = new FileReader(); reader.readAsDataURL(f);
                     reader.onload = () => resolve((reader.result as string).split(',')[1]);
                 });
                 payload.push({ base64, mimeType: f.type });
@@ -362,14 +307,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!aiImportResult) return;
     const newEntities: EntityProfile[] = aiImportResult.profiles.map(p => ({
         id: `${p.type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        name: p.name,
-        shortCode: p.shortCode || p.name.substring(0, 3).toUpperCase(),
-        type: p.type,
-        schedule: { ...createEmptySchedule(), ...(p.schedule || {}) }
+        name: p.name, shortCode: p.shortCode || p.name.substring(0, 3).toUpperCase(),
+        type: p.type, schedule: { ...createEmptySchedule(), ...(p.schedule || {}) }
     }));
-    setEntities(prev => { const next = [...prev, ...newEntities]; pushToCloud('entities', next); return next; });
-    setAiImportStatus('COMPLETED');
-    setAiImportResult(null);
+    setEntities(prev => { const next = [...prev, ...newEntities]; pushToCloud('registry', 'entities', next); return next; });
+    setAiImportStatus('COMPLETED'); setAiImportResult(null);
   };
 
   const finalizeStudentAiImport = (targetClassId?: string) => {
@@ -383,9 +325,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         return { id: `student-${Date.now()}-${idx}`, name: s.name, rollNumber: s.rollNumber || '', classId: resolvedClassId, admissionNumber: s.admissionNumber, classNumber: s.rollNumber };
     });
-    addStudents(newStuds);
-    setStudentAiImportStatus('COMPLETED');
-    setStudentAiImportResult(null);
+    addStudents(newStuds); setStudentAiImportStatus('COMPLETED'); setStudentAiImportResult(null);
   };
 
   const importSyncToken = async (token: string): Promise<boolean> => {
@@ -415,16 +355,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const resetData = () => { 
     const prefix = getPrefix(userRole);
-    setSchoolName('Mupini Combined School'); 
-    setAcademicYear('2025'); 
-    setPrimaryColor('#3b82f6');
-    setEntities(DEFAULT_DATA); 
-    setStudents(DEFAULT_STUDENTS); 
-    setTimeSlots(DEFAULT_TIME_SLOTS); 
-    setAttendanceRecords([]); 
-    setFirebaseConfigState(null); 
-    setSyncInfo(prev => ({ ...prev, isPaired: false, connectionState: 'OFFLINE', schoolId: null }));
-    
+    setSchoolName('Mupini Combined School'); setAcademicYear('2025'); setPrimaryColor('#3b82f6');
+    setEntities(DEFAULT_DATA); setStudents(DEFAULT_STUDENTS); setTimeSlots(DEFAULT_TIME_SLOTS); setAttendanceRecords([]); 
+    setFirebaseConfigState(null); setSyncInfo(prev => ({ ...prev, isPaired: false, connectionState: 'OFFLINE', schoolId: null }));
     const keysToRemove = [`mup_${prefix}_sn`, `mup_${prefix}_ay`, `mup_${prefix}_pc`, `mup_${prefix}_en`, `mup_${prefix}_st`, `mup_${prefix}_ts`, `mup_${prefix}_ar`, `mup_${prefix}_sy`, `mup_${prefix}_fb` ];
     keysToRemove.forEach(k => localStorage.removeItem(k));
   };
@@ -441,21 +374,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <DataContext.Provider value={{
       schoolName, academicYear, primaryColor, entities, students, timeSlots, attendanceRecords,
-      userRole, setUserRole, logout,
-      syncInfo, firebaseConfig, 
+      userRole, setUserRole, logout, syncInfo, firebaseConfig, 
       setFirebaseConfig: async (c) => { 
-        if (!c) { setFirebaseConfigState(null); await initFirebase(null); setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); return true; }
+        if (!c) { setFirebaseConfigState(null); setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); return true; }
         const success = await initFirebase(c);
         if (success) {
             setFirebaseConfigState(c); 
             const masterId = syncInfo.schoolId || `sch-${Math.random().toString(36).substr(2, 9)}`;
             setSyncInfo(p => ({ ...p, isPaired: true, schoolId: masterId, connectionState: 'CONNECTED', role: userRole || 'ADMIN' }));
-            FirebaseSync.setFullState(masterId, { schoolName, academicYear, entities, students, timeSlots, attendanceRecords, primaryColor });
+            
+            // Initializing Firestore with organized folders
+            FirebaseSync.setFullState(masterId, { 
+              metadata: { schoolName, academicYear, primaryColor, lastActive: Date.now() },
+              registry: { entities, students },
+              timing: { timeSlots },
+              attendance: { records: attendanceRecords }
+            });
             return true;
         } else { setFirebaseConfigState(null); return false; }
       },
-      getPairingToken, importSyncToken, 
-      disconnectSync: () => { setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); }, 
+      getPairingToken, importSyncToken, disconnectSync: () => { setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); }, 
       aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport: () => setAiImportStatus('IDLE'), finalizeAiImport,
       studentAiImportStatus, studentAiImportResult, startStudentAiImport, cancelStudentAiImport: () => setStudentAiImportStatus('IDLE'), finalizeStudentAiImport,
       updateSchoolName, updateAcademicYear, updatePrimaryColor, addEntity, updateEntity, deleteEntity, addStudent, addStudents, updateStudent, deleteStudent,

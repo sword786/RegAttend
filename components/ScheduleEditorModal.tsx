@@ -31,6 +31,7 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
   const [splitSubject, setSplitSubject] = useState(currentEntry?.splitSubject || '');
   const [splitTeacher, setSplitTeacher] = useState(currentEntry?.splitTeacher || '');
 
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const targetEntities = entities.filter(e => e.type !== entityType);
@@ -43,25 +44,15 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
         return;
     }
     
-    // Construct entry carefully to avoid undefined values
-    const entry: TimetableEntry = {
-        subject: subject.toUpperCase().trim(),
-        type: sessionType
-    };
-
-    if (room.trim()) entry.room = room.trim();
-    if (relatedCode.trim()) entry.teacherOrClass = relatedCode.trim();
-    
-    if (sessionType === 'combined' && selectedClasses.length > 0) {
-        entry.targetClasses = selectedClasses;
-    }
-
-    if (sessionType === 'split') {
-        if (splitSubject.trim()) entry.splitSubject = splitSubject.trim();
-        if (splitTeacher.trim()) entry.splitTeacher = splitTeacher.trim();
-    }
-    
-    onSave(entry);
+    onSave({
+        subject: subject.toUpperCase(),
+        room: room || undefined,
+        teacherOrClass: relatedCode || undefined,
+        type: sessionType,
+        targetClasses: sessionType === 'combined' ? selectedClasses : undefined,
+        splitSubject: sessionType === 'split' ? splitSubject : undefined,
+        splitTeacher: sessionType === 'split' ? splitTeacher : undefined
+    });
     onClose();
   };
 
@@ -75,7 +66,7 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-lg overflow-hidden ring-1 ring-white/20 max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden ring-1 ring-white/20 max-h-[90vh] flex flex-col">
         
         {/* Header */}
         <div className="p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">

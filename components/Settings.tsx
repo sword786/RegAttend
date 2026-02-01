@@ -208,6 +208,7 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto pb-20 px-4 sm:px-0">
+      {/* RESTORED EDIT MODALS */}
       {editingEntity && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm p-8 space-y-6">
@@ -262,6 +263,7 @@ export const Settings: React.FC = () => {
         </div>
       )}
 
+      {/* RESTORED AI ROSTER MODAL */}
       {isAiRosterModalOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
