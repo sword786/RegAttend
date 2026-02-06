@@ -83,6 +83,14 @@ export interface AiStudentImportResult {
 
 export type SyncConnectionState = 'OFFLINE' | 'CONNECTING' | 'CONNECTED' | 'SYNCING' | 'ERROR';
 
+export interface ConnectedDevice {
+  id: string;
+  name: string;
+  joinedAt: number;
+  lastActive: number;
+  role: UserRole;
+}
+
 export interface SyncMetadata {
   isPaired: boolean;
   pairCode: string | null;
@@ -90,6 +98,7 @@ export interface SyncMetadata {
   lastSync: string | null;
   schoolId: string | null;
   deviceId: string | null;
+  deviceName?: string | null;
   connectionState: SyncConnectionState;
   masterSourceId?: string;
 }

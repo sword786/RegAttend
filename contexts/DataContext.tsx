@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { 
   EntityProfile, Student, TimeSlot, TimetableEntry, AttendanceRecord, 
   DayOfWeek, AiImportStatus, AiImportResult, AiStudentImportResult, SyncMetadata, UserRole,
-  createEmptySchedule, BulkImportPayload
+  createEmptySchedule, BulkImportPayload, ConnectedDevice
 } from '../types';
 import { DEFAULT_DATA, DEFAULT_STUDENTS, DEFAULT_TIME_SLOTS } from '../constants';
 import { processTimetableImport, processStudentImport } from '../services/geminiService';
@@ -17,6 +17,7 @@ interface DataContextType {
   students: Student[];
   timeSlots: TimeSlot[];
   attendanceRecords: AttendanceRecord[];
+  connectedDevices: ConnectedDevice[];
   
   userRole: UserRole | null;
   setUserRole: (role: UserRole) => void;
@@ -24,10 +25,11 @@ interface DataContextType {
 
   syncInfo: SyncMetadata;
   firebaseConfig: any;
-  setFirebaseConfig: (config: any) => Promise<boolean>;
+  setFirebaseConfig: (config: any, recoverSchoolId?: string) => Promise<boolean>;
   getPairingToken: () => string;
-  importSyncToken: (token: string) => Promise<boolean>;
+  importSyncToken: (token: string, name: string) => Promise<boolean>;
   disconnectSync: () => void;
+  kickDevice: (deviceId: string) => void;
 
   aiImportStatus: AiImportStatus;
   aiImportResult: AiImportResult | null;
@@ -85,6 +87,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>(() => loadStored('ts', DEFAULT_TIME_SLOTS, userRole));
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => loadStored('ar', [], userRole));
   const [firebaseConfig, setFirebaseConfigState] = useState<any>(() => loadStored('fb', null, userRole));
+  const [connectedDevices, setConnectedDevices] = useState<ConnectedDevice[]>([]);
+  
   const [syncInfo, setSyncInfo] = useState<SyncMetadata>(() => {
     const sy = loadStored('sy', null, userRole);
     return {
@@ -93,7 +97,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       role: userRole || 'STANDALONE',
       lastSync: sy?.lastSync || null,
       schoolId: sy?.schoolId || null,
-      deviceId: `dev-${Math.random().toString(36).substr(2, 9)}`,
+      deviceId: sy?.deviceId || `dev-${Math.random().toString(36).substr(2, 9)}`,
+      deviceName: sy?.deviceName || null,
       connectionState: sy?.isPaired ? 'CONNECTING' : 'OFFLINE'
     };
   });
@@ -112,7 +117,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const setUserRole = (newRole: UserRole) => {
     localStorage.setItem('mup_role', JSON.stringify(newRole));
     setUserRoleState(newRole);
-    const prefix = newRole === 'STANDALONE' ? 'local' : 'cloud';
     
     setSchoolName(loadStored('sn', 'Mupini Combined School', newRole));
     setAcademicYear(loadStored('ay', '2025', newRole));
@@ -126,13 +130,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setFirebaseConfigState(fbCfg);
     
     const sy = loadStored('sy', null, newRole);
+    const existingDeviceId = sy?.deviceId || `dev-${Math.random().toString(36).substr(2, 9)}`;
+    
     setSyncInfo({
       isPaired: sy?.isPaired || false,
       pairCode: sy?.pairCode || null,
       role: newRole,
       lastSync: sy?.lastSync || null,
       schoolId: sy?.schoolId || null,
-      deviceId: `dev-${Math.random().toString(36).substr(2, 9)}`,
+      deviceId: existingDeviceId,
+      deviceName: sy?.deviceName || null,
       connectionState: sy?.isPaired ? 'CONNECTING' : 'OFFLINE'
     });
 
@@ -144,7 +151,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const unsubscribe = FirebaseSync.subscribe(syncInfo.schoolId, (data) => {
         if (skipFirebaseSync.current) { skipFirebaseSync.current = false; return; }
         
-        // Organized mapping: Data is stored in folders to keep Admin console clean
         if (data.metadata) {
             if (data.metadata.schoolName) setSchoolName(data.metadata.schoolName);
             if (data.metadata.academicYear) setAcademicYear(data.metadata.academicYear);
@@ -157,16 +163,34 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (data.timing?.timeSlots) setTimeSlots(data.timing.timeSlots);
         if (data.attendance?.records) setAttendanceRecords(data.attendance.records);
         
+        if (data.devices) {
+            const devicesList = Object.values(data.devices) as ConnectedDevice[];
+            setConnectedDevices(devicesList);
+            
+            // SECURITY: Teacher Kicked Check
+            if (userRole === 'TEACHER' && syncInfo.deviceId) {
+                const isStillAllowed = devicesList.find(d => d.id === syncInfo.deviceId);
+                if (!isStillAllowed && devicesList.length > 0) { 
+                    // Only kick if list is populated but I am not in it
+                    // NOTE: If devicesList is empty, it might be a fresh db, so we skip auto-kick to avoid lockouts on init
+                    // But if there ARE devices and I am not one of them, I was removed.
+                    logout();
+                    alert("You have been disconnected by the administrator.");
+                    return;
+                }
+            }
+        }
+        
         setSyncInfo(prev => ({ ...prev, lastSync: new Date().toISOString() }));
       });
 
       const connectionUnsub = FirebaseSync.monitorConnection((connected) => {
-        setSyncInfo(prev => ({ ...prev, connectionState: connected ? 'CONNECTED' : 'CONNECTING' }));
+        setSyncInfo(prev => ({ ...prev, connectionState: connected ? 'CONNECTED' : 'OFFLINE' }));
       });
 
       return () => { unsubscribe(); connectionUnsub(); };
     }
-  }, [syncInfo.isPaired, syncInfo.schoolId, firebaseConfig, userRole]);
+  }, [syncInfo.isPaired, syncInfo.schoolId, firebaseConfig, userRole, syncInfo.deviceId]);
 
   useEffect(() => {
     if (!isInitialized || !userRole) return;
@@ -198,102 +222,93 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setEntities(prev => { const next = [...prev, entity]; pushToCloud('registry', 'entities', next); return next; });
   };
   
-  // *** UPDATED FUNCTION WITH CASCADE UPDATE LOGIC ***
   const updateEntity = (id: string, updates: Partial<EntityProfile>) => {
     setEntities(prev => {
         const oldIdx = prev.findIndex(e => e.id === id);
         if (oldIdx === -1) return prev;
-
         const oldEntity = prev[oldIdx];
         const newEntity = { ...oldEntity, ...updates };
         
-        // If names/codes didn't change, simple update
         if (oldEntity.name === newEntity.name && oldEntity.shortCode === newEntity.shortCode) {
-            const next = [...prev];
-            next[oldIdx] = newEntity;
-            pushToCloud('registry', 'entities', next); 
-            return next;
+            const next = [...prev]; next[oldIdx] = newEntity; pushToCloud('registry', 'entities', next); return next;
         }
 
-        // identifiers changed, cascade update
         const oldCanonical = oldEntity.shortCode || oldEntity.name;
         const oldName = oldEntity.name;
         const newCanonical = newEntity.shortCode || newEntity.name;
 
         const next = prev.map(ent => {
-            if (ent.id === id) return newEntity; // Update the entity itself
-
-            // Deep clone schedule to check and update references
+            if (ent.id === id) return newEntity;
             const newSchedule = JSON.parse(JSON.stringify(ent.schedule)); 
             let modified = false;
 
             Object.keys(newSchedule).forEach(d => {
                 const day = d as DayOfWeek;
                 if (!newSchedule[day]) return;
-                
                 Object.keys(newSchedule[day]).forEach(p => {
                     const period = Number(p);
                     const slot = newSchedule[day][period];
                     if (!slot) return;
-
                     let slotModified = false;
-
-                    // Update main link
                     if (slot.teacherOrClass === oldCanonical || slot.teacherOrClass === oldName) {
-                        slot.teacherOrClass = newCanonical;
-                        slotModified = true;
+                        slot.teacherOrClass = newCanonical; slotModified = true;
                     }
-
-                    // Update split teacher reference
                     if (slot.splitTeacher === oldCanonical || slot.splitTeacher === oldName) {
-                        slot.splitTeacher = newCanonical;
-                        slotModified = true;
+                        slot.splitTeacher = newCanonical; slotModified = true;
                     }
-
-                    // Update combined target classes
                     if (slot.targetClasses && slot.targetClasses.length > 0) {
-                        const newTargets = slot.targetClasses.map((t: string) => 
-                            (t === oldCanonical || t === oldName) ? newCanonical : t
-                        );
+                        const newTargets = slot.targetClasses.map((t: string) => (t === oldCanonical || t === oldName) ? newCanonical : t);
                         if (JSON.stringify(newTargets) !== JSON.stringify(slot.targetClasses)) {
-                            slot.targetClasses = newTargets;
-                            slotModified = true;
+                            slot.targetClasses = newTargets; slotModified = true;
                         }
                     }
-
                     if (slotModified) modified = true;
                 });
             });
-
             return modified ? { ...ent, schedule: newSchedule } : ent;
         });
-
-        pushToCloud('registry', 'entities', next);
-        return next;
+        pushToCloud('registry', 'entities', next); return next;
     });
   };
 
   const deleteEntity = (id: string) => {
-    setEntities(prev => { const next = prev.filter(e => e.id !== id); pushToCloud('registry', 'entities', next); return next; });
+    setEntities(prev => { 
+        const filtered = prev.filter(e => e.id !== id); 
+        const deleted = prev.find(e => e.id === id);
+        if(!deleted) { pushToCloud('registry', 'entities', filtered); return filtered; }
+        const identifier = deleted.shortCode || deleted.name;
+        const cleaned = filtered.map(ent => {
+            const newSchedule = { ...ent.schedule };
+            let hasChanges = false;
+            Object.keys(newSchedule).forEach(d => {
+                const day = d as DayOfWeek;
+                if(newSchedule[day]) {
+                    Object.keys(newSchedule[day]!).forEach(p => {
+                        const period = Number(p);
+                        const slot = newSchedule[day]![period];
+                        if(slot) {
+                            if(slot.teacherOrClass === identifier) { newSchedule[day]![period] = { ...slot, teacherOrClass: undefined }; hasChanges = true; }
+                            if(slot.splitTeacher === identifier) { newSchedule[day]![period] = { ...slot, splitTeacher: undefined }; hasChanges = true; }
+                            if(slot.targetClasses && slot.targetClasses.includes(identifier)) { 
+                                newSchedule[day]![period] = { ...slot, targetClasses: slot.targetClasses.filter((t: string) => t !== identifier) }; hasChanges = true; 
+                            }
+                        }
+                    });
+                }
+            });
+            return hasChanges ? { ...ent, schedule: newSchedule } : ent;
+        });
+        pushToCloud('registry', 'entities', cleaned); return cleaned; 
+    });
   };
-  const addStudent = (student: Student) => {
-    setStudents(prev => { const next = [...prev, student]; pushToCloud('registry', 'students', next); return next; });
-  };
-  const addStudents = (newStudents: Student[]) => {
-    setStudents(prev => { const next = [...prev, ...newStudents]; pushToCloud('registry', 'students', next); return next; });
-  };
-  const updateStudent = (id: string, updates: Partial<Student>) => {
-    setStudents(prev => { const next = prev.map(s => s.id === id ? { ...s, ...updates } : s); pushToCloud('registry', 'students', next); return next; });
-  };
-  const deleteStudent = (id: string) => {
-    setStudents(prev => { const next = prev.filter(s => s.id !== id); pushToCloud('registry', 'students', next); return next; });
-  };
-  const updateTimeSlots = (newTimeSlots: TimeSlot[]) => {
-    setTimeSlots(newTimeSlots); pushToCloud('timing', 'timeSlots', newTimeSlots);
-  };
-  const deleteTimeSlot = (period: number) => {
-    setTimeSlots(prev => { const next = prev.filter(s => s.period !== period); pushToCloud('timing', 'timeSlots', next); return next; });
-  };
+
+  const addStudent = (student: Student) => { setStudents(prev => { const next = [...prev, student]; pushToCloud('registry', 'students', next); return next; }); };
+  const addStudents = (newStudents: Student[]) => { setStudents(prev => { const next = [...prev, ...newStudents]; pushToCloud('registry', 'students', next); return next; }); };
+  const updateStudent = (id: string, updates: Partial<Student>) => { setStudents(prev => { const next = prev.map(s => s.id === id ? { ...s, ...updates } : s); pushToCloud('registry', 'students', next); return next; }); };
+  const deleteStudent = (id: string) => { setStudents(prev => { const next = prev.filter(s => s.id !== id); pushToCloud('registry', 'students', next); return next; }); };
+  const updateTimeSlots = (newTimeSlots: TimeSlot[]) => { setTimeSlots(newTimeSlots); pushToCloud('timing', 'timeSlots', newTimeSlots); };
+  const deleteTimeSlot = (period: number) => { setTimeSlots(prev => { const next = prev.filter(s => s.period !== period); pushToCloud('timing', 'timeSlots', next); return next; }); };
+  
   const updateSchedule = (entityId: string, day: string, period: number, entry: TimetableEntry | null) => {
     setEntities(prev => {
       const dayKey = day as DayOfWeek;
@@ -331,23 +346,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const dayMap: Record<string, DayOfWeek> = {
           'mon': 'Mon', 'monday': 'Mon', 'tue': 'Tue', 'tuesday': 'Tue', 'wed': 'Wed', 'wednesday': 'Wed', 'thu': 'Thu', 'thursday': 'Thu', 'sat': 'Sat', 'saturday': 'Sat', 'sun': 'Sun', 'sunday': 'Sun'
       };
-
-      // Helper to find entity
       const findEntityIndex = (nameOrCode: string, type?: 'CLASS' | 'TEACHER') => {
           if (!nameOrCode) return -1;
           const clean = nameOrCode.trim().toLowerCase();
-          return next.findIndex(e => 
-              (type ? e.type === type : true) && 
-              (e.name.toLowerCase() === clean || e.shortCode?.toLowerCase() === clean)
-          );
+          return next.findIndex(e => (type ? e.type === type : true) && (e.name.toLowerCase() === clean || e.shortCode?.toLowerCase() === clean));
       };
-
-      // Helper to create entity
       const createEntity = (name: string, type: 'CLASS' | 'TEACHER'): number => {
-          // Check if it exists again just in case (though logical flow prevents it, safety first)
           const existing = findEntityIndex(name, type);
           if (existing !== -1) return existing;
-
           const newEntity: EntityProfile = {
               id: `${type.toLowerCase()}-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
               name: name,
@@ -355,112 +361,37 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               type: type,
               schedule: createEmptySchedule()
           };
-          next.push(newEntity);
-          return next.length - 1;
+          next.push(newEntity); return next.length - 1;
       };
-
-      // PASS 1: Create entities from payload and apply direct schedules
       payload.profiles.forEach(profileData => {
           let idx = findEntityIndex(profileData.name, profileData.type);
-          
-          if (idx === -1) {
-              idx = createEntity(profileData.name, profileData.type);
-          }
-
-          // Apply schedule from payload
+          if (idx === -1) idx = createEntity(profileData.name, profileData.type);
           profileData.schedule.forEach(slot => {
               const cleanDay = slot.day.toLowerCase().trim();
               const mapKey = Object.keys(dayMap).find(k => cleanDay.startsWith(k));
               if (mapKey) {
                   const day = dayMap[mapKey];
                   if (!next[idx].schedule[day]) next[idx].schedule[day] = {};
-                  
-                  // Preserve existing data if subject is generic "LESSON" but we have better data already
                   const existing = next[idx].schedule[day][slot.period];
                   const isNewGeneric = slot.subject === "LESSON" || !slot.subject;
-                  
                   if (!existing || !isNewGeneric) {
-                      next[idx].schedule[day][slot.period] = {
-                          subject: slot.subject || "LESSON",
-                          teacherOrClass: slot.teacherOrClass,
-                          type: 'normal'
-                      };
+                      next[idx].schedule[day][slot.period] = { subject: slot.subject || "LESSON", teacherOrClass: slot.teacherOrClass, type: 'normal' };
                   } else if (existing && slot.teacherOrClass) {
-                      // Just update the link if subject is generic
-                      next[idx].schedule[day][slot.period] = {
-                          ...existing,
-                          teacherOrClass: slot.teacherOrClass
-                      };
+                      next[idx].schedule[day][slot.period] = { ...existing, teacherOrClass: slot.teacherOrClass };
                   }
               }
           });
       });
-
-      // PASS 2: Reciprocal Updates (Cross-Pollinate)
-      payload.profiles.forEach(sourceProfile => {
-          const sourceIdx = findEntityIndex(sourceProfile.name, sourceProfile.type);
-          if (sourceIdx === -1) return;
-          
-          const sourceEntity = next[sourceIdx];
-          const sourceCode = sourceEntity.shortCode || sourceEntity.name;
-
-          sourceProfile.schedule.forEach(slot => {
-              if (!slot.teacherOrClass) return;
-              
-              const targetCode = slot.teacherOrClass;
-              const targetType = sourceProfile.type === 'CLASS' ? 'TEACHER' : 'CLASS';
-              let targetIdx = findEntityIndex(targetCode, targetType);
-
-              // *** CRITICAL: Create target if missing ***
-              if (targetIdx === -1) {
-                  targetIdx = createEntity(targetCode, targetType);
-              }
-
-              if (targetIdx !== -1) {
-                  const targetEntity = next[targetIdx];
-                  const cleanDay = slot.day.toLowerCase().trim();
-                  const mapKey = Object.keys(dayMap).find(k => cleanDay.startsWith(k));
-                  
-                  if (mapKey) {
-                      const day = dayMap[mapKey];
-                      if (!targetEntity.schedule[day]) targetEntity.schedule[day] = {};
-                      
-                      const existingTargetSlot = targetEntity.schedule[day][slot.period];
-                      
-                      // Logic for merging subjects
-                      let finalSubject = existingTargetSlot?.subject || "LESSON";
-                      
-                      if (sourceProfile.type === 'CLASS') {
-                          // Push Subject from Class to Teacher
-                          finalSubject = slot.subject;
-                      } else {
-                           // Source is Teacher.
-                           if (!existingTargetSlot?.subject || existingTargetSlot.subject === "LESSON") {
-                               finalSubject = slot.subject || "LESSON";
-                           }
-                      }
-
-                      // Apply reciprocal update
-                      targetEntity.schedule[day][slot.period] = {
-                          subject: finalSubject,
-                          teacherOrClass: sourceCode, // Point back to Source
-                          type: 'normal',
-                          room: existingTargetSlot?.room // Preserve room if it exists
-                      };
-                  }
-              }
-          });
-      });
-      
-      pushToCloud('registry', 'entities', next);
-      return next;
+      pushToCloud('registry', 'entities', next); return next;
     });
   };
 
   const markAttendance = (newRecords: AttendanceRecord[]) => {
     setAttendanceRecords(prev => {
-      const filtered = prev.filter(r => !newRecords.some(nr => nr.date === r.date && nr.period === r.period && nr.studentId === r.studentId));
-      const next = [...filtered, ...newRecords];
+      const prevMap = new Map();
+      prev.forEach(r => prevMap.set(`${r.date}-${r.period}-${r.studentId}`, r));
+      newRecords.forEach(nr => prevMap.set(`${nr.date}-${nr.period}-${nr.studentId}`, nr));
+      const next = Array.from(prevMap.values());
       pushToCloud('attendance', 'records', next);
       return next;
     });
@@ -534,7 +465,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     addStudents(newStuds); setStudentAiImportStatus('COMPLETED'); setStudentAiImportResult(null);
   };
 
-  const importSyncToken = async (token: string): Promise<boolean> => {
+  const importSyncToken = async (token: string, name: string): Promise<boolean> => {
     setSyncInfo(prev => ({ ...prev, connectionState: 'CONNECTING' }));
     try {
       const json = decodeURIComponent(escape(atob(token)));
@@ -554,7 +485,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         await initFirebase(decoded.firebaseConfig); 
       }
       
-      setSyncInfo(prev => ({ ...prev, isPaired: true, role: 'TEACHER', lastSync: new Date().toISOString(), schoolId: decoded.masterId, connectionState: 'CONNECTED' }));
+      const deviceId = syncInfo.deviceId || `dev-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Register Device
+      const thisDevice: ConnectedDevice = {
+          id: deviceId,
+          name: name || "Unknown Teacher",
+          joinedAt: Date.now(),
+          lastActive: Date.now(),
+          role: 'TEACHER'
+      };
+      
+      await FirebaseSync.registerDevice(decoded.masterId, thisDevice);
+
+      setSyncInfo(prev => ({ 
+          ...prev, 
+          isPaired: true, 
+          role: 'TEACHER', 
+          lastSync: new Date().toISOString(), 
+          schoolId: decoded.masterId, 
+          connectionState: 'CONNECTED',
+          deviceId: deviceId,
+          deviceName: name
+      }));
       return true;
     } catch (e) { setSyncInfo(prev => ({ ...prev, connectionState: 'ERROR' })); return false; }
   };
@@ -562,7 +515,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const resetData = () => { 
     const prefix = getPrefix(userRole);
     setSchoolName('Mupini Combined School'); setAcademicYear('2025'); setPrimaryColor('#3b82f6');
-    setEntities(DEFAULT_DATA); setStudents(DEFAULT_STUDENTS); setTimeSlots(DEFAULT_TIME_SLOTS); setAttendanceRecords([]); 
+    setEntities(DEFAULT_DATA); setStudents(DEFAULT_STUDENTS); setTimeSlots(DEFAULT_TIME_SLOTS); setAttendanceRecords([]); setConnectedDevices([]);
     setFirebaseConfigState(null); setSyncInfo(prev => ({ ...prev, isPaired: false, connectionState: 'OFFLINE', schoolId: null }));
     const keysToRemove = [`mup_${prefix}_sn`, `mup_${prefix}_ay`, `mup_${prefix}_pc`, `mup_${prefix}_en`, `mup_${prefix}_st`, `mup_${prefix}_ts`, `mup_${prefix}_ar`, `mup_${prefix}_sy`, `mup_${prefix}_fb` ];
     keysToRemove.forEach(k => localStorage.removeItem(k));
@@ -577,29 +530,61 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }))));
   };
 
+  const setFirebaseConfig = async (config: any, recoverSchoolId?: string) => {
+     if (!config) { 
+        setFirebaseConfigState(null); 
+        setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); 
+        return true; 
+     }
+     
+     const success = await initFirebase(config);
+     
+     if (success) {
+        setFirebaseConfigState(config);
+        const masterId = recoverSchoolId || syncInfo.schoolId || `sch-${Math.random().toString(36).substr(2, 9)}`;
+        
+        setSyncInfo(p => ({ 
+            ...p, 
+            isPaired: true, 
+            schoolId: masterId, 
+            connectionState: 'CONNECTED', 
+            role: userRole || 'ADMIN' 
+        }));
+        
+        const isNewLink = !recoverSchoolId && !syncInfo.schoolId;
+
+        if (isNewLink) {
+            FirebaseSync.setFullState(masterId, { 
+                metadata: { schoolName, academicYear, primaryColor, lastActive: Date.now() },
+                registry: { entities, students },
+                timing: { timeSlots },
+                attendance: { records: attendanceRecords }
+            });
+        }
+        return true;
+     }
+     return false;
+  };
+  
+  const disconnectSync = () => { 
+      // If Admin, clear cloud devices list? No, just unpair local.
+      setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); 
+  };
+  
+  const kickDevice = async (deviceId: string) => {
+      if (syncInfo.schoolId) {
+          await FirebaseSync.removeDevice(syncInfo.schoolId, deviceId);
+          // Optimistically update local state
+          setConnectedDevices(prev => prev.filter(d => d.id !== deviceId));
+      }
+  };
+
   return (
     <DataContext.Provider value={{
-      schoolName, academicYear, primaryColor, entities, students, timeSlots, attendanceRecords,
+      schoolName, academicYear, primaryColor, entities, students, timeSlots, attendanceRecords, connectedDevices,
       userRole, setUserRole, logout, syncInfo, firebaseConfig, 
-      setFirebaseConfig: async (c) => { 
-        if (!c) { setFirebaseConfigState(null); setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); return true; }
-        const success = await initFirebase(c);
-        if (success) {
-            setFirebaseConfigState(c); 
-            const masterId = syncInfo.schoolId || `sch-${Math.random().toString(36).substr(2, 9)}`;
-            setSyncInfo(p => ({ ...p, isPaired: true, schoolId: masterId, connectionState: 'CONNECTED', role: userRole || 'ADMIN' }));
-            
-            // Initializing Firestore with organized folders
-            FirebaseSync.setFullState(masterId, { 
-              metadata: { schoolName, academicYear, primaryColor, lastActive: Date.now() },
-              registry: { entities, students },
-              timing: { timeSlots },
-              attendance: { records: attendanceRecords }
-            });
-            return true;
-        } else { setFirebaseConfigState(null); return false; }
-      },
-      getPairingToken, importSyncToken, disconnectSync: () => { setSyncInfo(p => ({ ...p, isPaired: false, connectionState: 'OFFLINE' })); }, 
+      setFirebaseConfig,
+      getPairingToken, importSyncToken, disconnectSync, kickDevice,
       aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport: () => setAiImportStatus('IDLE'), finalizeAiImport,
       studentAiImportStatus, studentAiImportResult, startStudentAiImport, cancelStudentAiImport: () => setStudentAiImportStatus('IDLE'), finalizeStudentAiImport,
       updateSchoolName, updateAcademicYear, updatePrimaryColor, addEntity, updateEntity, deleteEntity, addStudent, addStudents, updateStudent, deleteStudent,

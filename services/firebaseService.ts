@@ -1,5 +1,16 @@
 import { initializeApp, FirebaseApp, getApps, deleteApp } from "firebase/app";
-import { getFirestore, doc, setDoc, onSnapshot, updateDoc, Firestore } from "firebase/firestore";
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  updateDoc, 
+  deleteField,
+  Firestore,
+  enableIndexedDbPersistence,
+  initializeFirestore,
+  CACHE_SIZE_UNLIMITED
+} from "firebase/firestore";
 
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
@@ -23,7 +34,24 @@ export const initFirebase = async (config: any) => {
   
   try {
     app = initializeApp(config);
-    db = getFirestore(app);
+    
+    // Initialize Firestore with settings optimized for offline usage
+    db = initializeFirestore(app, {
+      cacheSizeBytes: CACHE_SIZE_UNLIMITED
+    });
+
+    // Enable Offline Persistence
+    try {
+      await enableIndexedDbPersistence(db);
+      console.log("Offline persistence enabled");
+    } catch (err: any) {
+      if (err.code == 'failed-precondition') {
+        console.warn("Persistence failed: Multiple tabs open");
+      } else if (err.code == 'unimplemented') {
+        console.warn("Persistence not supported by browser");
+      }
+    }
+
     return true;
   } catch (e) {
     console.error("Firestore Init Error:", e);
@@ -55,7 +83,32 @@ export const FirebaseSync = {
       });
       await updateDoc(schoolRef, safeUpdates);
     } catch (e) {
-      console.warn("Firestore Update Failed:", e);
+      console.warn("Firestore Update Failed (likely offline, queued):", e);
+    }
+  },
+
+  async registerDevice(schoolId: string, device: any) {
+    if (!db || !schoolId) return;
+    try {
+      const schoolRef = doc(db, "schools", schoolId);
+      await updateDoc(schoolRef, {
+        [`devices.${device.id}`]: device,
+        "metadata.lastActive": Date.now()
+      });
+    } catch (e) {
+        console.warn("Device Register Failed", e);
+    }
+  },
+
+  async removeDevice(schoolId: string, deviceId: string) {
+    if (!db || !schoolId) return;
+    try {
+      const schoolRef = doc(db, "schools", schoolId);
+      await updateDoc(schoolRef, {
+        [`devices.${deviceId}`]: deleteField()
+      });
+    } catch (e) {
+        console.warn("Device Removal Failed", e);
     }
   },
 
@@ -81,7 +134,8 @@ export const FirebaseSync = {
     if (!db || !schoolId) return () => {};
     try {
       const schoolRef = doc(db, "schools", schoolId);
-      return onSnapshot(schoolRef, (snapshot) => {
+      return onSnapshot(schoolRef, { includeMetadataChanges: true }, (snapshot) => {
+        // We accept both server updates and local cache updates
         if (snapshot.exists()) onUpdate(snapshot.data());
       });
     } catch (e) {

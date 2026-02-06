@@ -48,7 +48,7 @@ export const Settings: React.FC = () => {
     entities, addEntity, deleteEntity, updateEntity, students, addStudents, deleteStudent, updateStudent,
     timeSlots, updateTimeSlots, deleteTimeSlot, resetData, aiImportStatus, aiImportResult, startAiImport, cancelAiImport, finalizeAiImport,
     studentAiImportStatus, studentAiImportResult, startStudentAiImport, cancelStudentAiImport, finalizeStudentAiImport,
-    syncInfo, disconnectSync, userRole, firebaseConfig, setFirebaseConfig, getPairingToken
+    syncInfo, disconnectSync, userRole, firebaseConfig, setFirebaseConfig, getPairingToken, connectedDevices, kickDevice
   } = useData();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('menu');
@@ -64,6 +64,7 @@ export const Settings: React.FC = () => {
   const [teacherFile, setTeacherFile] = useState<File | null>(null);
   const [classFile, setClassFile] = useState<File | null>(null);
   const [configInput, setConfigInput] = useState('');
+  const [existingNodeId, setExistingNodeId] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
   const [isAiRosterModalOpen, setIsAiRosterModalOpen] = useState(false);
@@ -150,7 +151,9 @@ export const Settings: React.FC = () => {
           let cfg;
           try { cfg = JSON.parse(cleaned); } catch (e) { cfg = JSON.parse(configInput); }
           if (!cfg.apiKey || !cfg.projectId) { alert("Invalid config."); setIsConnecting(false); return; }
-          const success = await setFirebaseConfig(cfg);
+          
+          const targetId = existingNodeId.trim() || undefined;
+          const success = await setFirebaseConfig(cfg, targetId);
           if (!success) alert("Link failed.");
       } catch (e) { alert("Parse error."); } finally { setIsConnecting(false); }
   };
@@ -622,8 +625,50 @@ export const Settings: React.FC = () => {
                                 </code>
                                 {copiedToken ? <Check className="w-5 h-5 text-emerald-400" /> : <Copy className="w-5 h-5 text-slate-400 group-hover:text-white" />}
                             </div>
+                            
+                            <div className="mt-8 flex flex-col gap-2">
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Node ID (Save this for recovery)</span>
+                                <code className="text-xs font-mono text-emerald-400 bg-black/30 px-3 py-2 rounded-lg w-fit">{syncInfo.schoolId}</code>
+                            </div>
                         </div>
                     </div>
+                )}
+
+                {/* Connected Devices List (Admin Only) */}
+                {userRole === 'ADMIN' && connectedDevices.length > 0 && (
+                     <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                        <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                            <Smartphone className="w-5 h-5 text-blue-500" /> Connected Devices
+                        </h3>
+                        <div className="space-y-3">
+                            {connectedDevices.map(device => (
+                                <div key={device.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-500">
+                                            {device.role === 'ADMIN' ? <ShieldCheck className="w-5 h-5" /> : <Users className="w-5 h-5" />}
+                                        </div>
+                                        <div>
+                                            <div className="text-sm font-black text-slate-700">{device.name}</div>
+                                            <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                                                Active {new Date(device.lastActive).toLocaleTimeString()}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {device.id !== syncInfo.deviceId && (
+                                        <button 
+                                            onClick={() => triggerConfirm("Disconnect Device?", `Disconnect ${device.name}?`, () => kickDevice(device.id))}
+                                            className="p-2 text-rose-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                        >
+                                            <X className="w-5 h-5" />
+                                        </button>
+                                    )}
+                                    {device.id === syncInfo.deviceId && (
+                                        <span className="text-[9px] font-black bg-blue-100 text-blue-600 px-2 py-1 rounded-lg uppercase">You</span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                     </div>
                 )}
 
                 {/* Firebase Config */}
@@ -633,10 +678,12 @@ export const Settings: React.FC = () => {
                             <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Database Connection</h3>
                             <div className="flex items-center gap-2 mt-2">
                                 <div className={`w-2 h-2 rounded-full ${syncInfo.isPaired ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{syncInfo.isPaired ? 'Connected to Hive' : 'Running Locally'}</span>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                    {syncInfo.isPaired ? `Connected as ${syncInfo.deviceName || 'Unknown'}` : 'Running Locally'}
+                                </span>
                             </div>
                         </div>
-                        {syncInfo.isPaired && (
+                        {syncInfo.isPaired && userRole === 'ADMIN' && (
                             <button onClick={disconnectSync} className="px-6 py-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-colors">
                                 Disconnect
                             </button>
@@ -651,6 +698,19 @@ export const Settings: React.FC = () => {
                                 placeholder="Paste Firebase Config JSON here..."
                                 className="w-full h-32 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono outline-none focus:ring-4 focus:ring-blue-500/10"
                             />
+                            
+                            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <RotateCcw className="w-3 h-3" /> Recover Existing Connection (Optional)
+                                </label>
+                                <input 
+                                    value={existingNodeId}
+                                    onChange={e => setExistingNodeId(e.target.value)}
+                                    placeholder="Paste existing Node ID to resume sync (e.g. sch-x93...)"
+                                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none"
+                                />
+                            </div>
+
                             <button 
                                 onClick={handleConnectFirebase} 
                                 disabled={isConnecting}

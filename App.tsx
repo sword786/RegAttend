@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { TimetableGrid } from './components/TimetableGrid';
@@ -8,7 +7,6 @@ import { Assistant } from './components/Assistant';
 import { Settings } from './components/Settings';
 import { AttendanceReport } from './components/AttendanceReport';
 import { DashboardHome } from './components/DashboardHome';
-// Fix: Added missing icon imports (Wifi, AlertCircle, Monitor)
 import { Menu, Search, Pencil, Eye, LayoutGrid, ChevronDown, GraduationCap, Users, ShieldCheck, Sparkles, LogOut, ChevronRight, Palette, Wifi, AlertCircle, Monitor } from 'lucide-react';
 import { TimetableEntry, UserRole } from './types';
 import { DataProvider, useData } from './contexts/DataContext';
@@ -16,6 +14,7 @@ import { DataProvider, useData } from './contexts/DataContext';
 const RoleSelector: React.FC = () => {
   const { setUserRole, importSyncToken, primaryColor } = useData();
   const [pairingToken, setPairingToken] = useState('');
+  const [teacherName, setTeacherName] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
 
@@ -24,9 +23,13 @@ const RoleSelector: React.FC = () => {
         setError("Please enter the pairing code from your administrator.");
         return;
     }
+    if (!teacherName.trim()) {
+        setError("Please enter your name to identify this device.");
+        return;
+    }
     setIsSyncing(true);
     setError('');
-    const success = await importSyncToken(pairingToken);
+    const success = await importSyncToken(pairingToken, teacherName.trim());
     if (success) {
         setUserRole('TEACHER');
     } else {
@@ -103,6 +106,14 @@ const RoleSelector: React.FC = () => {
                             </div>
                             
                             <div className="space-y-4">
+                                <input 
+                                    type="text" 
+                                    placeholder="Your Name (e.g. Mr. Smith)" 
+                                    value={teacherName}
+                                    onChange={e => setTeacherName(e.target.value)}
+                                    className="w-full bg-slate-900/60 border border-white/10 rounded-2xl p-5 text-white text-xs font-bold outline-none focus:ring-4 transition-all placeholder:text-slate-600 focus:bg-slate-900"
+                                    style={{ '--tw-ring-color': primaryColor + '40' } as React.CSSProperties}
+                                />
                                 <div className="relative">
                                     <input 
                                         type="password" 
