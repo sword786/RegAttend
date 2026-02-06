@@ -1,10 +1,9 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   EntityProfile, Student, TimeSlot, TimetableEntry, AttendanceRecord, 
   DayOfWeek, AiImportStatus, AiImportResult, AiStudentImportResult, SyncMetadata, UserRole,
-  createEmptySchedule
+  createEmptySchedule, BulkImportPayload
 } from '../types';
 import { DEFAULT_DATA, DEFAULT_STUDENTS, DEFAULT_TIME_SLOTS } from '../constants';
 import { processTimetableImport, processStudentImport } from '../services/geminiService';
@@ -56,6 +55,7 @@ interface DataContextType {
   updateTimeSlots: (slots: TimeSlot[]) => void;
   deleteTimeSlot: (period: number) => void;
   updateSchedule: (entityId: string, day: string, period: number, entry: TimetableEntry | null) => void;
+  bulkImportData: (payload: BulkImportPayload) => void;
   markAttendance: (records: AttendanceRecord[]) => void;
   getAttendanceForPeriod: (date: string, entityId: string, period: number) => AttendanceRecord[];
   resetData: () => void;
@@ -197,9 +197,82 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const addEntity = (entity: EntityProfile) => {
     setEntities(prev => { const next = [...prev, entity]; pushToCloud('registry', 'entities', next); return next; });
   };
+  
+  // *** UPDATED FUNCTION WITH CASCADE UPDATE LOGIC ***
   const updateEntity = (id: string, updates: Partial<EntityProfile>) => {
-    setEntities(prev => { const next = prev.map(e => e.id === id ? { ...e, ...updates } : e); pushToCloud('registry', 'entities', next); return next; });
+    setEntities(prev => {
+        const oldIdx = prev.findIndex(e => e.id === id);
+        if (oldIdx === -1) return prev;
+
+        const oldEntity = prev[oldIdx];
+        const newEntity = { ...oldEntity, ...updates };
+        
+        // If names/codes didn't change, simple update
+        if (oldEntity.name === newEntity.name && oldEntity.shortCode === newEntity.shortCode) {
+            const next = [...prev];
+            next[oldIdx] = newEntity;
+            pushToCloud('registry', 'entities', next); 
+            return next;
+        }
+
+        // identifiers changed, cascade update
+        const oldCanonical = oldEntity.shortCode || oldEntity.name;
+        const oldName = oldEntity.name;
+        const newCanonical = newEntity.shortCode || newEntity.name;
+
+        const next = prev.map(ent => {
+            if (ent.id === id) return newEntity; // Update the entity itself
+
+            // Deep clone schedule to check and update references
+            const newSchedule = JSON.parse(JSON.stringify(ent.schedule)); 
+            let modified = false;
+
+            Object.keys(newSchedule).forEach(d => {
+                const day = d as DayOfWeek;
+                if (!newSchedule[day]) return;
+                
+                Object.keys(newSchedule[day]).forEach(p => {
+                    const period = Number(p);
+                    const slot = newSchedule[day][period];
+                    if (!slot) return;
+
+                    let slotModified = false;
+
+                    // Update main link
+                    if (slot.teacherOrClass === oldCanonical || slot.teacherOrClass === oldName) {
+                        slot.teacherOrClass = newCanonical;
+                        slotModified = true;
+                    }
+
+                    // Update split teacher reference
+                    if (slot.splitTeacher === oldCanonical || slot.splitTeacher === oldName) {
+                        slot.splitTeacher = newCanonical;
+                        slotModified = true;
+                    }
+
+                    // Update combined target classes
+                    if (slot.targetClasses && slot.targetClasses.length > 0) {
+                        const newTargets = slot.targetClasses.map((t: string) => 
+                            (t === oldCanonical || t === oldName) ? newCanonical : t
+                        );
+                        if (JSON.stringify(newTargets) !== JSON.stringify(slot.targetClasses)) {
+                            slot.targetClasses = newTargets;
+                            slotModified = true;
+                        }
+                    }
+
+                    if (slotModified) modified = true;
+                });
+            });
+
+            return modified ? { ...ent, schedule: newSchedule } : ent;
+        });
+
+        pushToCloud('registry', 'entities', next);
+        return next;
+    });
   };
+
   const deleteEntity = (id: string) => {
     setEntities(prev => { const next = prev.filter(e => e.id !== id); pushToCloud('registry', 'entities', next); return next; });
   };
@@ -251,6 +324,139 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return updatedEntities;
     });
   };
+  
+  const bulkImportData = (payload: BulkImportPayload) => {
+    setEntities(prev => {
+      let next = [...prev];
+      const dayMap: Record<string, DayOfWeek> = {
+          'mon': 'Mon', 'monday': 'Mon', 'tue': 'Tue', 'tuesday': 'Tue', 'wed': 'Wed', 'wednesday': 'Wed', 'thu': 'Thu', 'thursday': 'Thu', 'sat': 'Sat', 'saturday': 'Sat', 'sun': 'Sun', 'sunday': 'Sun'
+      };
+
+      // Helper to find entity
+      const findEntityIndex = (nameOrCode: string, type?: 'CLASS' | 'TEACHER') => {
+          if (!nameOrCode) return -1;
+          const clean = nameOrCode.trim().toLowerCase();
+          return next.findIndex(e => 
+              (type ? e.type === type : true) && 
+              (e.name.toLowerCase() === clean || e.shortCode?.toLowerCase() === clean)
+          );
+      };
+
+      // Helper to create entity
+      const createEntity = (name: string, type: 'CLASS' | 'TEACHER'): number => {
+          // Check if it exists again just in case (though logical flow prevents it, safety first)
+          const existing = findEntityIndex(name, type);
+          if (existing !== -1) return existing;
+
+          const newEntity: EntityProfile = {
+              id: `${type.toLowerCase()}-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+              name: name,
+              shortCode: name.length <= 3 ? name.toUpperCase() : name.substring(0,3).toUpperCase(),
+              type: type,
+              schedule: createEmptySchedule()
+          };
+          next.push(newEntity);
+          return next.length - 1;
+      };
+
+      // PASS 1: Create entities from payload and apply direct schedules
+      payload.profiles.forEach(profileData => {
+          let idx = findEntityIndex(profileData.name, profileData.type);
+          
+          if (idx === -1) {
+              idx = createEntity(profileData.name, profileData.type);
+          }
+
+          // Apply schedule from payload
+          profileData.schedule.forEach(slot => {
+              const cleanDay = slot.day.toLowerCase().trim();
+              const mapKey = Object.keys(dayMap).find(k => cleanDay.startsWith(k));
+              if (mapKey) {
+                  const day = dayMap[mapKey];
+                  if (!next[idx].schedule[day]) next[idx].schedule[day] = {};
+                  
+                  // Preserve existing data if subject is generic "LESSON" but we have better data already
+                  const existing = next[idx].schedule[day][slot.period];
+                  const isNewGeneric = slot.subject === "LESSON" || !slot.subject;
+                  
+                  if (!existing || !isNewGeneric) {
+                      next[idx].schedule[day][slot.period] = {
+                          subject: slot.subject || "LESSON",
+                          teacherOrClass: slot.teacherOrClass,
+                          type: 'normal'
+                      };
+                  } else if (existing && slot.teacherOrClass) {
+                      // Just update the link if subject is generic
+                      next[idx].schedule[day][slot.period] = {
+                          ...existing,
+                          teacherOrClass: slot.teacherOrClass
+                      };
+                  }
+              }
+          });
+      });
+
+      // PASS 2: Reciprocal Updates (Cross-Pollinate)
+      payload.profiles.forEach(sourceProfile => {
+          const sourceIdx = findEntityIndex(sourceProfile.name, sourceProfile.type);
+          if (sourceIdx === -1) return;
+          
+          const sourceEntity = next[sourceIdx];
+          const sourceCode = sourceEntity.shortCode || sourceEntity.name;
+
+          sourceProfile.schedule.forEach(slot => {
+              if (!slot.teacherOrClass) return;
+              
+              const targetCode = slot.teacherOrClass;
+              const targetType = sourceProfile.type === 'CLASS' ? 'TEACHER' : 'CLASS';
+              let targetIdx = findEntityIndex(targetCode, targetType);
+
+              // *** CRITICAL: Create target if missing ***
+              if (targetIdx === -1) {
+                  targetIdx = createEntity(targetCode, targetType);
+              }
+
+              if (targetIdx !== -1) {
+                  const targetEntity = next[targetIdx];
+                  const cleanDay = slot.day.toLowerCase().trim();
+                  const mapKey = Object.keys(dayMap).find(k => cleanDay.startsWith(k));
+                  
+                  if (mapKey) {
+                      const day = dayMap[mapKey];
+                      if (!targetEntity.schedule[day]) targetEntity.schedule[day] = {};
+                      
+                      const existingTargetSlot = targetEntity.schedule[day][slot.period];
+                      
+                      // Logic for merging subjects
+                      let finalSubject = existingTargetSlot?.subject || "LESSON";
+                      
+                      if (sourceProfile.type === 'CLASS') {
+                          // Push Subject from Class to Teacher
+                          finalSubject = slot.subject;
+                      } else {
+                           // Source is Teacher.
+                           if (!existingTargetSlot?.subject || existingTargetSlot.subject === "LESSON") {
+                               finalSubject = slot.subject || "LESSON";
+                           }
+                      }
+
+                      // Apply reciprocal update
+                      targetEntity.schedule[day][slot.period] = {
+                          subject: finalSubject,
+                          teacherOrClass: sourceCode, // Point back to Source
+                          type: 'normal',
+                          room: existingTargetSlot?.room // Preserve room if it exists
+                      };
+                  }
+              }
+          });
+      });
+      
+      pushToCloud('registry', 'entities', next);
+      return next;
+    });
+  };
+
   const markAttendance = (newRecords: AttendanceRecord[]) => {
     setAttendanceRecords(prev => {
       const filtered = prev.filter(r => !newRecords.some(nr => nr.date === r.date && nr.period === r.period && nr.studentId === r.studentId));
@@ -397,7 +603,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport: () => setAiImportStatus('IDLE'), finalizeAiImport,
       studentAiImportStatus, studentAiImportResult, startStudentAiImport, cancelStudentAiImport: () => setStudentAiImportStatus('IDLE'), finalizeStudentAiImport,
       updateSchoolName, updateAcademicYear, updatePrimaryColor, addEntity, updateEntity, deleteEntity, addStudent, addStudents, updateStudent, deleteStudent,
-      updateTimeSlots, deleteTimeSlot, updateSchedule, markAttendance, getAttendanceForPeriod, resetData
+      updateTimeSlots, deleteTimeSlot, updateSchedule, bulkImportData, markAttendance, getAttendanceForPeriod, resetData
     }}>
       {children}
     </DataContext.Provider>

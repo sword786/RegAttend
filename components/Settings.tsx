@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 import { 
@@ -7,7 +6,8 @@ import {
   Download, RotateCcw, UserPlus, Layers, Users, GraduationCap, 
   FileCheck, ShieldAlert, ArrowLeft, Settings as SettingsIcon, ChevronRight,
   Cloud, CloudOff, RefreshCw, Smartphone, Copy, Monitor, ShieldCheck, UserMinus, Zap, BookOpen, Share2, ClipboardList,
-  ChevronDown, Wifi, WifiOff, Database, Server, Info, Terminal, Flame, Palette, Hash, Fingerprint, TableProperties, CheckCircle2
+  ChevronDown, Wifi, WifiOff, Database, Server, Info, Terminal, Flame, Palette, Hash, Fingerprint, TableProperties, CheckCircle2,
+  Eye, EyeOff
 } from 'lucide-react';
 import { EntityProfile, TimeSlot, createEmptySchedule, Student } from '../types';
 
@@ -28,11 +28,12 @@ const MenuCard: React.FC<MenuCardProps> = ({ icon, title, description, onClick, 
     purple: 'bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white',
     emerald: 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white',
     rose: 'bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white',
-    amber: 'bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white'
+    amber: 'bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white',
+    slate: 'bg-slate-50 text-slate-600 group-hover:bg-slate-600 group-hover:text-white'
   };
   return (
     <button onClick={onClick} className="group bg-white p-8 rounded-[2.5rem] border border-slate-200 text-left transition-all hover:shadow-2xl hover:translate-y-[-4px] active:scale-[0.98] flex flex-col h-full">
-        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-8 transition-all duration-300 shadow-sm shrink-0 ${colorClasses[color]}`}>{icon}</div>
+        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-8 transition-all duration-300 shadow-sm shrink-0 ${colorClasses[color] || colorClasses.blue}`}>{icon}</div>
         <div className="flex-1 min-w-0">
             <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2 flex items-center group-hover:text-blue-600 transition-colors truncate">{title} <ChevronRight className="w-4 h-4 ml-2 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all shrink-0" /></h3>
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-loose line-clamp-2">{description}</p>
@@ -208,7 +209,8 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto pb-20 px-4 sm:px-0">
-      {/* RESTORED EDIT MODALS */}
+      
+      {/* EDIT ENTITY MODAL */}
       {editingEntity && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm p-8 space-y-6">
@@ -231,6 +233,7 @@ export const Settings: React.FC = () => {
         </div>
       )}
 
+      {/* EDIT STUDENT MODAL */}
       {editingStudent && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm p-8 space-y-6">
@@ -263,7 +266,36 @@ export const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* RESTORED AI ROSTER MODAL */}
+      {/* CONFIRMATION MODAL */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm p-8 space-y-6 animate-in zoom-in-95 duration-300">
+                <div className="flex flex-col items-center text-center space-y-4">
+                    <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-2 shadow-sm border border-rose-100">
+                        <AlertCircle className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-xl font-black text-slate-800 tracking-tight leading-none">{confirmModal.title}</h3>
+                    <p className="text-xs font-bold text-slate-400 leading-relaxed uppercase tracking-wide px-4">{confirmModal.message}</p>
+                </div>
+                <div className="flex gap-4">
+                    <button 
+                        onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))} 
+                        className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={() => { confirmModal.onConfirm(); setConfirmModal(prev => ({ ...prev, isOpen: false })); }} 
+                        className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-rose-700 transition-colors"
+                    >
+                        {confirmModal.confirmText || "Confirm"}
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* AI ROSTER MODAL */}
       {isAiRosterModalOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
@@ -329,17 +361,15 @@ export const Settings: React.FC = () => {
                                                         <td className="p-4 text-xs font-black text-slate-700">{s.name}</td>
                                                         <td className="p-4 text-xs font-bold text-slate-400">{s.rollNumber || '-'}</td>
                                                         <td className="p-4 text-xs font-bold text-slate-400">{s.admissionNumber || '-'}</td>
-                                                        <td className="p-4 text-xs font-black text-slate-600 uppercase">{s.className || 'Unknown'}</td>
                                                         <td className="p-4">
-                                                            {match ? (
-                                                                <div className="flex items-center gap-2 text-emerald-500 text-[9px] font-black uppercase tracking-tighter">
-                                                                    <CheckCircle2 className="w-3 h-3" /> Auto-Mapped
-                                                                </div>
-                                                            ) : (
-                                                                <div className="flex items-center gap-2 text-amber-500 text-[9px] font-black uppercase tracking-tighter">
-                                                                    <AlertCircle className="w-3 h-3" /> Manual Check
-                                                                </div>
-                                                            )}
+                                                            {s.className ? (
+                                                                <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase ${match ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                                                                    {s.className} {match ? '✓' : '?'}
+                                                                </span>
+                                                            ) : <span className="text-slate-200">-</span>}
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -348,223 +378,293 @@ export const Settings: React.FC = () => {
                                     </table>
                                 </div>
                             </div>
-                            <div className="p-6 bg-indigo-50 border border-indigo-100 rounded-3xl flex items-center justify-between gap-6">
-                                <div className="flex-1">
-                                    <h4 className="text-indigo-700 font-black uppercase tracking-widest text-xs mb-1">Global Fallback Register</h4>
-                                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Assigned if AI cannot match a row's identifier</p>
-                                </div>
-                                <div className="relative min-w-[240px]">
-                                    <select value={targetClassId} onChange={e => setTargetClassId(e.target.value)} className="w-full pl-5 pr-10 py-3 bg-white border border-indigo-200 rounded-xl text-xs font-black uppercase tracking-widest outline-none appearance-none">
-                                        <option value="">-- No Fallback --</option>
-                                        {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                    </select>
-                                    <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-indigo-400" />
-                                </div>
+                            <div className="flex justify-end gap-4">
+                                <button onClick={cancelStudentAiImport} className="px-6 py-4 rounded-xl text-slate-400 font-black text-[10px] uppercase hover:text-slate-600">Discard</button>
+                                <button onClick={() => finalizeStudentAiImport(targetClassId)} className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-indigo-700">Import All</button>
                             </div>
                         </div>
                     )}
-                    {studentAiImportStatus === 'COMPLETED' && (
-                        <div className="py-20 text-center space-y-6">
-                            <div className="w-24 h-24 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto shadow-inner border border-emerald-100"><Check className="w-12 h-12" /></div>
-                            <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Roster Applied Successfully</h4>
-                            <button onClick={() => setIsAiRosterModalOpen(false)} className="px-10 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Close Hub</button>
-                        </div>
-                    )}
                 </div>
-                {studentAiImportStatus === 'REVIEW' && (
-                     <div className="p-8 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                        <button onClick={cancelStudentAiImport} className="text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600">Re-Upload</button>
-                        <button onClick={() => { finalizeStudentAiImport(targetClassId || undefined); setIsAiRosterModalOpen(false); }} className="px-12 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl hover:bg-indigo-700 transition-all flex items-center gap-3">
-                            <CheckCircle2 className="w-4 h-4" /> Finalise Enrollment
+            </div>
+        </div>
+      )}
+
+      {/* MAIN CONTENT AREA */}
+      {activeTab === 'menu' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <MenuCard icon={<SettingsIcon className="w-8 h-8" />} title="General" description="School name, year & core config" onClick={() => setActiveTab('general')} color="slate" />
+            <MenuCard icon={<Clock className="w-8 h-8" />} title="Timetable" description="Manage periods & timing slots" onClick={() => setActiveTab('timetable')} color="blue" />
+            <MenuCard icon={<Users className="w-8 h-8" />} title="Teachers" description="Manage faculty profiles" onClick={() => setActiveTab('teachers')} color="indigo" />
+            <MenuCard icon={<GraduationCap className="w-8 h-8" />} title="Classes" description="Manage grade levels & sections" onClick={() => setActiveTab('classes')} color="purple" />
+            <MenuCard icon={<BookOpen className="w-8 h-8" />} title="Students" description="Bulk enroll & student registry" onClick={() => setActiveTab('students')} color="emerald" />
+            <MenuCard icon={<FileUp className="w-8 h-8" />} title="Timetable Import" description="Upload full schedules via AI" onClick={() => setActiveTab('import')} color="rose" />
+            <MenuCard icon={<Cloud className="w-8 h-8" />} title="Sync Cloud" description="Firebase & multi-device pairing" onClick={() => setActiveTab('sync')} color="amber" />
+        </div>
+      )}
+
+      {activeTab === 'general' && (
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+            <SectionHeader title="General Configuration" description="Core Institutional Settings" />
+            <div className="space-y-8">
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Institution Name</label>
+                            <input value={schoolName} onChange={e => updateSchoolName(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:ring-4 focus:ring-blue-500/10 outline-none transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Academic Year</label>
+                            <input value={academicYear} onChange={e => updateAcademicYear(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:ring-4 focus:ring-blue-500/10 outline-none transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">System Accent Color</label>
+                            <div className="flex items-center gap-3 p-2 bg-slate-50 rounded-2xl border border-slate-200">
+                                <input type="color" value={primaryColor} onChange={e => updatePrimaryColor(e.target.value)} className="w-12 h-12 rounded-xl border-none cursor-pointer" />
+                                <span className="text-xs font-mono font-bold text-slate-500">{primaryColor}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-rose-50 p-8 rounded-[2.5rem] border border-rose-100 space-y-6">
+                    <div className="flex items-start gap-4">
+                        <div className="p-3 bg-white rounded-xl shadow-sm text-rose-500">
+                            <ShieldAlert className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black text-rose-900 uppercase tracking-tight">Danger Zone</h3>
+                            <p className="text-xs font-bold text-rose-400/80 mt-1">Irreversible actions for system administrators</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => triggerConfirm("Factory Reset", "This will wipe all data including students, schedules, and attendance logs. This cannot be undone. Are you sure?", () => { resetData(); setActiveTab('menu'); })}
+                        className="w-full py-4 bg-white border border-rose-200 text-rose-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-sm hover:shadow-xl"
+                    >
+                        Factory Reset System
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {activeTab === 'timetable' && (
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+            <SectionHeader title="Timetable Slots" description="Define Daily Period Structure" />
+            <div className="space-y-8">
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-end">
+                    <div className="w-full md:w-32 space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Period #</label>
+                        <input type="number" placeholder="1" value={newPeriodNum} onChange={e => setNewPeriodNum(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
+                    </div>
+                    <div className="flex-1 space-y-2 w-full">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Time Range</label>
+                        <input placeholder="e.g. 8:00 - 9:00" value={newPeriodTime} onChange={e => setNewPeriodTime(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
+                    </div>
+                    <button onClick={handleAddOrEditPeriod} className="w-full md:w-auto h-14 px-8 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-blue-700 transition-colors">
+                        {editingPeriod !== null ? 'Update' : 'Add Slot'}
+                    </button>
+                </div>
+
+                <div className="space-y-3">
+                    {timeSlots.map(slot => (
+                        <div key={slot.period} className="flex items-center justify-between p-6 bg-white border border-slate-200 rounded-[2rem] hover:shadow-md transition-all group">
+                            <div className="flex items-center gap-6">
+                                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center font-black text-xl shadow-sm">{slot.period}</div>
+                                <div className="text-lg font-black text-slate-700">{slot.timeRange}</div>
+                            </div>
+                            <div className="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => { setEditingPeriod(slot.period); setNewPeriodNum(slot.period.toString()); setNewPeriodTime(slot.timeRange); }} className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"><Pencil className="w-4 h-4" /></button>
+                                <button onClick={() => triggerConfirm("Delete Slot?", "This will remove the period from all schedules.", () => deleteTimeSlot(slot.period))} className="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+      )}
+
+      {activeTab === 'teachers' && renderEntityList('TEACHER')}
+      {activeTab === 'classes' && renderEntityList('CLASS')}
+
+      {activeTab === 'students' && (
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+            <SectionHeader title="Student Registry" description="Enrollment & Class Rosters" />
+            <div className="space-y-8">
+                 <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-8 rounded-[2.5rem] shadow-xl text-white relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                    <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-6">
+                        <div>
+                            <h3 className="text-2xl font-black uppercase tracking-tight">AI Roster Import</h3>
+                            <p className="text-white/70 text-xs font-bold uppercase tracking-widest mt-2">Upload class lists from Excel, PDF or Images</p>
+                        </div>
+                        <button onClick={() => setIsAiRosterModalOpen(true)} className="px-8 py-4 bg-white text-indigo-600 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:scale-105 transition-transform flex items-center gap-2">
+                            <Sparkles className="w-4 h-4" /> Open AI Tool
                         </button>
+                    </div>
+                 </div>
+
+                 <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                    <div className="flex justify-between items-center">
+                        <div className="text-xs font-black text-slate-400 uppercase tracking-widest ml-2 flex items-center gap-2"><ClipboardList className="w-4 h-4" /> Bulk Quick-Add</div>
+                        <select value={targetClassId} onChange={e => setTargetClassId(e.target.value)} className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black uppercase outline-none">
+                            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                    </div>
+                    <textarea 
+                        value={bulkStudentInput}
+                        onChange={e => setBulkStudentInput(e.target.value)}
+                        placeholder={`Paste student list here...\nFormat: Name, Admission No, Class No\n\nExample:\nJohn Doe, A101, 1\nJane Smith, A102, 2`}
+                        className="w-full h-40 p-6 bg-slate-50 border border-slate-200 rounded-3xl text-xs font-mono leading-relaxed outline-none focus:ring-4 focus:ring-blue-500/10 resize-none"
+                    />
+                    <div className="flex justify-end">
+                        <button onClick={handleBulkEnroll} disabled={!targetClassId} className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-blue-600 transition-colors disabled:opacity-50">
+                            Enroll Students
+                        </button>
+                    </div>
+                 </div>
+
+                 <div className="space-y-4">
+                     {students.filter(s => s.classId === targetClassId).map(s => (
+                         <div key={s.id} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl group hover:border-slate-300 transition-colors">
+                             <div className="flex items-center gap-4">
+                                 <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-xs font-black text-slate-500">{s.classNumber || '#'}</div>
+                                 <div>
+                                     <div className="font-bold text-slate-800 text-sm">{s.name}</div>
+                                     <div className="text-[9px] font-black text-slate-300 uppercase">ADM: {s.admissionNumber || 'N/A'}</div>
+                                 </div>
+                             </div>
+                             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                 <button onClick={() => setEditingStudent(s)} className="p-2 hover:bg-blue-50 rounded-lg text-slate-400 hover:text-blue-600"><Pencil className="w-4 h-4" /></button>
+                                 <button onClick={() => triggerConfirm("Expel?", `Remove ${s.name}?`, () => deleteStudent(s.id))} className="p-2 hover:bg-rose-50 rounded-lg text-slate-400 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
+                             </div>
+                         </div>
+                     ))}
+                     {students.filter(s => s.classId === targetClassId).length === 0 && (
+                         <div className="text-center py-10 text-slate-300 text-xs font-bold uppercase tracking-widest">No students in selected class</div>
+                     )}
+                 </div>
+            </div>
+        </div>
+      )}
+
+      {activeTab === 'import' && (
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+             <SectionHeader title="Timetable Import" description="Digitize Schedules from Images" />
+             <div className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-sm text-center space-y-8">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                     <div className="space-y-4">
+                         <div className="text-xs font-black text-slate-400 uppercase tracking-widest">Teacher Timetables</div>
+                         <label className="block p-8 border-2 border-dashed border-slate-200 rounded-3xl hover:bg-slate-50 cursor-pointer transition-colors">
+                             <input type="file" hidden onChange={e => setTeacherFile(e.target.files?.[0] || null)} accept="image/*" />
+                             <Upload className="w-8 h-8 text-slate-300 mx-auto mb-4" />
+                             <span className="text-xs font-bold text-slate-600">{teacherFile ? teacherFile.name : "Choose File"}</span>
+                         </label>
                      </div>
-                )}
-            </div>
+                     <div className="space-y-4">
+                         <div className="text-xs font-black text-slate-400 uppercase tracking-widest">Class Timetables</div>
+                         <label className="block p-8 border-2 border-dashed border-slate-200 rounded-3xl hover:bg-slate-50 cursor-pointer transition-colors">
+                             <input type="file" hidden onChange={e => setClassFile(e.target.files?.[0] || null)} accept="image/*" />
+                             <Upload className="w-8 h-8 text-slate-300 mx-auto mb-4" />
+                             <span className="text-xs font-bold text-slate-600">{classFile ? classFile.name : "Choose File"}</span>
+                         </label>
+                     </div>
+                 </div>
+                 
+                 {aiImportStatus === 'IDLE' && (
+                    <button onClick={handleAiProcess} disabled={!teacherFile && !classFile} className="px-10 py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:shadow-none">
+                        Start Analysis
+                    </button>
+                 )}
+                 {aiImportStatus === 'PROCESSING' && (
+                    <div className="flex flex-col items-center gap-4">
+                        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                        <span className="text-xs font-black text-blue-400 uppercase tracking-widest">Analyzing Documents...</span>
+                    </div>
+                 )}
+                 {aiImportStatus === 'REVIEW' && aiImportResult && (
+                    <div className="space-y-6 animate-in slide-in-from-bottom-4">
+                        <div className="p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center justify-center gap-3 text-emerald-700 font-bold text-xs uppercase tracking-wide">
+                            <Check className="w-5 h-5" /> Successfully extracted {aiImportResult.profiles.length} profiles
+                        </div>
+                        <div className="flex gap-4 justify-center">
+                            <button onClick={cancelAiImport} className="px-8 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200">Discard</button>
+                            <button onClick={finalizeAiImport} className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-blue-600">Import Data</button>
+                        </div>
+                    </div>
+                 )}
+                 {aiImportStatus === 'ERROR' && (
+                    <div className="p-6 bg-rose-50 border border-rose-100 rounded-2xl text-rose-600 text-xs font-bold">
+                        Analysis Failed. Please try clearer images.
+                    </div>
+                 )}
+             </div>
         </div>
       )}
 
-      {confirmModal.isOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm p-8">
-                <div className="w-16 h-16 bg-rose-50 rounded-2xl flex items-center justify-center mb-6 text-rose-600"><ShieldAlert className="w-8 h-8" /></div>
-                <h3 className="text-xl font-black text-slate-800 mb-2">{confirmModal.title}</h3>
-                <p className="text-sm text-slate-500 mb-8 leading-relaxed font-bold">{confirmModal.message}</p>
-                <div className="flex gap-4">
-                    <button onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
-                    <button onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }} className="flex-1 py-4 bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest">{confirmModal.confirmText || "Delete"}</button>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {activeTab === 'menu' ? (
-        <div className="space-y-10 animate-in fade-in slide-in-from-bottom-6 duration-500">
-          <div className="flex items-center gap-6">
-              <div className="p-4 bg-slate-900 text-white rounded-[1.5rem] shadow-xl"><SettingsIcon className="w-8 h-8" /></div>
-              <div><h2 className="text-3xl sm:text-4xl font-black text-slate-800 tracking-tighter uppercase leading-none">Institutional Node Hub</h2><p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.25em] mt-2">Core System Architecture</p></div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-            <MenuCard icon={<RotateCcw className="w-7 h-7" />} title="General" description="Branding & school identity" onClick={() => setActiveTab('general')} color="blue" />
-            {userRole === 'ADMIN' && <MenuCard icon={<Database className="w-7 h-7" />} title="Database Sync" description="Go live with real-time cloud pairing" onClick={() => setActiveTab('sync')} color="indigo" />}
-            <MenuCard icon={<Users className="w-7 h-7" />} title="Teachers" description="Manage faculty & registry codes" onClick={() => setActiveTab('teachers')} color="purple" />
-            <MenuCard icon={<GraduationCap className="w-7 h-7" />} title="Classes" description="Configure grade sessions & codes" onClick={() => setActiveTab('classes')} color="emerald" />
-            <MenuCard icon={<UserPlus className="w-7 h-7" />} title="Students" description="Enrolment & AI Spreadsheet Hub" onClick={() => setActiveTab('students')} color="rose" />
-            <MenuCard icon={<Clock className="w-7 h-7" />} title="Periods" description="Adjust session timings" onClick={() => setActiveTab('timetable')} color="blue" />
-            <MenuCard icon={<Sparkles className="w-7 h-7" />} title="AI Digitizer" description="Document to timetable grid" onClick={() => setActiveTab('import')} color="amber" />
-          </div>
-        </div>
-      ) : (
-        <div className="animate-in fade-in slide-in-from-right-4 duration-500">
-          {activeTab === 'general' && (
-            <>
-              <SectionHeader title="General" description="Node Branding & Session" />
-              <div className="bg-white p-6 sm:p-12 rounded-[3.5rem] border border-slate-200 shadow-sm space-y-12">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                  <div className="space-y-3"><label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">School Identity</label><input value={schoolName} onChange={e => updateSchoolName(e.target.value)} className="w-full p-5 border border-slate-200 rounded-2xl font-black text-slate-800 bg-slate-50 outline-none transition-all" /></div>
-                  <div className="space-y-3"><label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Academic Year</label><input value={academicYear} onChange={e => updateAcademicYear(e.target.value)} className="w-full p-5 border border-slate-200 rounded-2xl font-black text-slate-800 bg-slate-50 outline-none transition-all" /></div>
-                </div>
-                <div className="space-y-4">
-                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">System Theme</label>
-                    <div className="flex flex-wrap gap-4">
-                        {['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#6366f1', '#0f172a'].map(c => (
-                            <button key={c} onClick={() => updatePrimaryColor(c)} className={`w-14 h-14 rounded-2xl shadow-sm border-4 transition-all ${primaryColor === c ? 'border-white ring-4 ring-slate-200 scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} />
-                        ))}
-                    </div>
-                </div>
-                <div className="pt-12 border-t border-slate-100 flex justify-between items-center">
-                    <button onClick={() => triggerConfirm("Irreversible Wipe?", "Clears the current branch's cache.", resetData)} className="px-10 py-4 bg-rose-50 text-rose-600 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all">Factory Reset</button>
-                </div>
-              </div>
-            </>
-          )}
-
-          {activeTab === 'teachers' && renderEntityList('TEACHER')}
-          {activeTab === 'classes' && renderEntityList('CLASS')}
-
-          {activeTab === 'students' && (
-            <>
-              <SectionHeader title="Students" description="Institutional Enrollment Protocol" />
-              <div className="space-y-10 animate-in fade-in duration-300">
-                <div className="bg-white p-6 sm:p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-10">
-                    <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-                        <div className="space-y-1">
-                            <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight">Roster Registry</h4>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Manual or AI-Hub Enrollment</p>
-                        </div>
-                        <button onClick={() => setIsAiRosterModalOpen(true)} className="flex items-center gap-3 px-8 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"><Sparkles className="w-5 h-5" /> AI Spreadsheet Extractor</button>
-                    </div>
-                    <div className="grid grid-cols-1 gap-8">
-                        <div className="space-y-3">
-                            <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Target Register</label>
-                            <select value={targetClassId} onChange={e => setTargetClassId(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-slate-800 outline-none cursor-pointer transition-all hover:bg-slate-100">
-                                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
-                        </div>
-                    </div>
-                    <div className="space-y-3">
-                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Manual Entry (Name, ADM No, Roll No)</label>
-                        <textarea value={bulkStudentInput} onChange={e => setBulkStudentInput(e.target.value)} placeholder="John Doe, 2024/001, 1" className="w-full h-32 p-6 bg-slate-50 border border-slate-200 rounded-3xl font-bold text-slate-700 outline-none focus:bg-white transition-all resize-none shadow-inner" />
-                    </div>
-                    <button onClick={handleBulkEnroll} className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black text-[11px] uppercase tracking-[0.3em] shadow-2xl hover:bg-blue-600 transition-all flex items-center justify-center gap-4"><UserPlus className="w-5 h-5" /> Execute Enrollment</button>
-                </div>
-                <div className="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-8 border-b border-slate-100 bg-slate-50/30 flex justify-between items-center"><h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em]">Enrolled Students ({students.length})</h3></div>
-                    <div className="overflow-x-auto scrollbar-hide">
-                        <table className="w-full text-left min-w-[600px]">
-                            <thead className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 border-b border-slate-100">
-                                <tr><th className="p-6">Full Name</th><th className="p-6">Registry IDs</th><th className="p-6">Current Roster</th><th className="p-6 text-right">Actions</th></tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {students.map(s => (
-                                    <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="p-6 font-black text-slate-800 text-sm">{s.name}</td>
-                                        <td className="p-6 font-mono text-[10px] text-slate-400">{s.admissionNumber ? <span className="mr-2">ADM: {s.admissionNumber}</span> : null}{s.classNumber ? <span># {s.classNumber}</span> : null}</td>
-                                        <td className="p-6"><span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest border border-blue-100">{entities.find(e => e.id === s.classId)?.name || 'Unassigned'}</span></td>
-                                        <td className="p-6 text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => setEditingStudent(s)} className="p-3 text-slate-200 hover:text-blue-600 hover:bg-blue-50 rounded-2xl transition-all"><Pencil className="w-4 h-4" /></button>
-                                                <button onClick={() => triggerConfirm("Remove?", `Sure?`, () => deleteStudent(s.id))} className="p-3 text-slate-200 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all"><Trash2 className="w-4 h-4" /></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {activeTab === 'timetable' && (
-             <>
-              <SectionHeader title="Periods" description="Institutional Timing Architect" />
-              <div className="bg-white p-6 sm:p-12 rounded-[3rem] border border-slate-200 shadow-sm space-y-8">
-                  <div className="flex flex-col sm:flex-row gap-4 items-end bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
-                      <div className="space-y-2 flex-1 w-full"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Period Number</label><input type="number" value={newPeriodNum} onChange={e => setNewPeriodNum(e.target.value)} placeholder="e.g. 1" className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-black outline-none focus:ring-4 focus:ring-blue-500/10" /></div>
-                      <div className="space-y-2 flex-[2] w-full"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Clock Range</label><input value={newPeriodTime} onChange={e => setNewPeriodTime(e.target.value)} placeholder="e.g. 08:00 - 09:00" className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-black outline-none focus:ring-4 focus:ring-blue-500/10" /></div>
-                      <button onClick={handleAddOrEditPeriod} className="w-full sm:w-auto px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:scale-105 transition-all">{editingPeriod !== null ? 'Update Slot' : 'Add Slot'}</button>
-                  </div>
-                  <div className="space-y-3">{timeSlots.map(slot => (<div key={slot.period} className="flex items-center justify-between p-5 bg-white border border-slate-100 rounded-2xl hover:shadow-md transition-all group"><div className="flex items-center gap-6"><div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-black text-lg border border-blue-100">P{slot.period}</div><div className="font-black text-slate-700">{slot.timeRange}</div></div><div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => { setNewPeriodNum(slot.period.toString()); setNewPeriodTime(slot.timeRange); setEditingPeriod(slot.period); }} className="p-2 text-slate-400 hover:text-blue-600 rounded-xl transition-all"><Pencil className="w-4 h-4" /></button><button onClick={() => deleteTimeSlot(slot.period)} className="p-2 text-slate-400 hover:text-rose-600 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button></div></div>))}</div>
-              </div>
-             </>
-          )}
-
-          {activeTab === 'import' && (
-             <>
-                <SectionHeader title="AI Timetable" description="Document to Roster Digitization" />
-                <div className="bg-white p-8 sm:p-12 rounded-[3.5rem] border border-slate-200 shadow-sm">
-                    {aiImportStatus === 'IDLE' || aiImportStatus === 'ERROR' ? (
-                        <div className="space-y-8">
-                            <div className="p-6 bg-amber-50 rounded-[2rem] border border-amber-100 text-amber-800 text-xs font-bold flex items-start gap-4"><Sparkles className="w-6 h-6 shrink-0" /><div><p className="mb-2 uppercase tracking-widest font-black">Institutional Protocol</p>Upload physical timetable grids for AI profile generation.</div></div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-3"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2">Faculty Schedule</label><label className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-slate-200 rounded-[2rem] cursor-pointer hover:bg-slate-50 transition-all group overflow-hidden"><input type="file" onChange={e => setTeacherFile(e.target.files?.[0] || null)} className="hidden" accept=".pdf,image/*" />{teacherFile ? <div className="p-4 text-center text-blue-600 font-bold">{teacherFile.name}</div> : <Upload className="w-8 h-8 text-slate-300 group-hover:text-blue-500" />}</label></div>
-                                <div className="space-y-3"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2">Grade Schedule</label><label className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-slate-200 rounded-[2rem] cursor-pointer hover:bg-slate-50 transition-all group overflow-hidden"><input type="file" onChange={e => setClassFile(e.target.files?.[0] || null)} className="hidden" accept=".pdf,image/*" />{classFile ? <div className="p-4 text-center text-blue-600 font-bold">{classFile.name}</div> : <Upload className="w-8 h-8 text-slate-300 group-hover:text-blue-500" />}</label></div>
+      {activeTab === 'sync' && (
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+            <SectionHeader title="Cloud Synchronization" description="Multi-device Pairing & Database" />
+            <div className="space-y-8">
+                {/* Pairing Card */}
+                {syncInfo.schoolId && (
+                    <div className="bg-slate-900 text-white p-10 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/20 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2"></div>
+                        <div className="relative z-10">
+                            <h3 className="text-2xl font-black uppercase tracking-tight mb-2">Staff Pairing Token</h3>
+                            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-8">Share this code with teachers to link their devices</p>
+                            
+                            <div className="p-6 bg-white/10 rounded-2xl border border-white/10 backdrop-blur-md flex items-center gap-4 group cursor-pointer hover:bg-white/20 transition-all" onClick={handleCopyToken}>
+                                <div className="p-3 bg-black/30 rounded-xl">
+                                    <Key className="w-6 h-6 text-blue-400" />
+                                </div>
+                                <code className="flex-1 font-mono text-xs sm:text-sm break-all text-blue-200">
+                                    {getPairingToken().substring(0, 40)}...
+                                </code>
+                                {copiedToken ? <Check className="w-5 h-5 text-emerald-400" /> : <Copy className="w-5 h-5 text-slate-400 group-hover:text-white" />}
                             </div>
-                            <button onClick={handleAiProcess} disabled={!teacherFile && !classFile} className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] hover:bg-blue-600 disabled:opacity-50 transition-all">Start Analysis</button>
                         </div>
-                    ) : aiImportStatus === 'PROCESSING' ? (
-                        <div className="py-24 text-center"><Loader2 className="w-16 h-16 text-blue-500 animate-spin mx-auto mb-8" /><h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Analyzing Matrices...</h3></div>
-                    ) : (
-                        <div className="space-y-8">
-                            <div className="max-h-96 overflow-y-auto space-y-3 p-2">{aiImportResult?.profiles.map((p, i) => (<div key={i} className="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between"><div className="flex items-center gap-4"><div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-black text-xs shadow-sm">{p.shortCode}</div><div><div className="font-black text-slate-700 text-sm">{p.name}</div><div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{p.type} Record</div></div></div></div>))}</div>
-                            <div className="flex gap-4"><button onClick={cancelAiImport} className="flex-1 py-5 bg-slate-100 text-slate-500 rounded-[2rem] font-black text-xs uppercase tracking-widest">Discard</button><button onClick={finalizeAiImport} className="flex-[2] py-5 bg-blue-600 text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl">Enroll AI Profiles</button></div>
+                    </div>
+                )}
+
+                {/* Firebase Config */}
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Database Connection</h3>
+                            <div className="flex items-center gap-2 mt-2">
+                                <div className={`w-2 h-2 rounded-full ${syncInfo.isPaired ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{syncInfo.isPaired ? 'Connected to Hive' : 'Running Locally'}</span>
+                            </div>
+                        </div>
+                        {syncInfo.isPaired && (
+                            <button onClick={disconnectSync} className="px-6 py-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-colors">
+                                Disconnect
+                            </button>
+                        )}
+                    </div>
+
+                    {!syncInfo.isPaired && (
+                        <div className="space-y-4">
+                            <textarea 
+                                value={configInput}
+                                onChange={e => setConfigInput(e.target.value)}
+                                placeholder="Paste Firebase Config JSON here..."
+                                className="w-full h-32 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono outline-none focus:ring-4 focus:ring-blue-500/10"
+                            />
+                            <button 
+                                onClick={handleConnectFirebase} 
+                                disabled={isConnecting}
+                                className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-blue-600 transition-colors disabled:opacity-50"
+                            >
+                                {isConnecting ? 'Linking...' : 'Initialize Link'}
+                            </button>
                         </div>
                     )}
                 </div>
-             </>
-          )}
-
-          {activeTab === 'sync' && userRole === 'ADMIN' && (
-            <>
-              <SectionHeader title="Database Sync" description="Cloud Infrastructure Core" />
-              <div className="space-y-10">
-                  <div className={`p-10 rounded-[4rem] border-2 flex flex-col lg:flex-row items-center justify-between gap-10 transition-all duration-500 ${syncInfo.isPaired ? 'bg-slate-900 text-white border-blue-500 shadow-2xl' : 'bg-white border-slate-100'}`}>
-                      <div className="flex items-center gap-8 flex-col lg:flex-row text-center lg:text-left">
-                          <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center shadow-xl ${syncInfo.isPaired ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-300'}`}>{syncInfo.connectionState === 'CONNECTED' ? <Wifi className="w-10 h-10 animate-pulse" /> : <WifiOff className="w-10 h-10" />}</div>
-                          <div><h3 className="text-2xl font-black uppercase tracking-tighter mb-2">{syncInfo.isPaired ? 'Hub Synchronized' : 'Standalone Protocol'}</h3><p className={`text-xs font-bold uppercase tracking-widest leading-relaxed max-w-sm ${syncInfo.isPaired ? 'text-blue-300' : 'text-slate-400'}`}>{syncInfo.isPaired ? `Live broadcast established with institutional cloud.` : 'Paste Firebase config to activate real-time synchronization.'}</p></div>
-                      </div>
-                      {syncInfo.isPaired && <button onClick={disconnectSync} className="w-full lg:w-auto px-10 py-5 bg-rose-600 text-white rounded-[2rem] text-[11px] font-black uppercase tracking-widest shadow-xl">Close Connection</button>}
-                  </div>
-
-                  {!syncInfo.isPaired ? (
-                      <div className="bg-orange-50/50 p-10 rounded-[3.5rem] border border-orange-100 space-y-8">
-                        <div className="flex items-center gap-6"><div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-3xl flex items-center justify-center shadow-sm shrink-0"><Flame className="w-8 h-8" /></div><div><h4 className="text-xl font-black text-slate-800 uppercase tracking-tight">Backend Activation</h4><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Connect your Firebase Realtime database cluster</p></div></div>
-                        <textarea value={configInput} onChange={e => setConfigInput(e.target.value)} placeholder='Paste Firebase Config Object here...' className="w-full h-48 p-7 bg-white border border-slate-200 rounded-[2rem] font-mono text-[11px] text-slate-600 outline-none focus:ring-4 focus:ring-orange-500/10 transition-all resize-none shadow-sm" />
-                        <div className="flex justify-end"><button onClick={handleConnectFirebase} disabled={isConnecting} className="px-10 py-4 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-orange-700 transition-all flex items-center gap-3 disabled:opacity-50">{isConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : null} {isConnecting ? 'Linking Node...' : 'Connect Node'}</button></div>
-                      </div>
-                  ) : (
-                      <div className="p-10 bg-white rounded-[3.5rem] border border-blue-100 shadow-xl space-y-8 animate-in zoom-in-95 duration-500">
-                          <div className="flex items-center gap-6"><div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center border border-blue-100"><Share2 className="w-8 h-8" /></div><div><h4 className="text-xl font-black text-slate-800 uppercase tracking-tight">Staff Pairing Key</h4><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Share this key with teachers to link their devices</p></div></div>
-                          <div className="relative group"><div className="w-full p-6 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-[9px] text-slate-500 break-all h-24 overflow-y-auto scrollbar-hide pr-16">{getPairingToken()}</div><button onClick={handleCopyToken} className="absolute right-4 top-4 p-3 bg-blue-600 text-white rounded-xl shadow-lg transition-all active:scale-90">{copiedToken ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}</button></div>
-                          {copiedToken && <p className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.3em] text-center animate-bounce">Key Copied to Clipboard</p>}
-                      </div>
-                  )}
-              </div>
-            </>
-          )}
+            </div>
         </div>
       )}
+
     </div>
   );
 };

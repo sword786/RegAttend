@@ -94,6 +94,19 @@ export interface SyncMetadata {
   masterSourceId?: string;
 }
 
+export interface BulkImportPayload {
+  profiles: {
+    name: string;
+    type: 'CLASS' | 'TEACHER';
+    schedule: {
+      day: string;
+      period: number;
+      subject: string;
+      teacherOrClass?: string;
+    }[];
+  }[];
+}
+
 export const createEmptySchedule = (): WeeklySchedule => ({
   'Sat': {},
   'Sun': {},

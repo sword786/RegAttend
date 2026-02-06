@@ -1,9 +1,13 @@
-
 import { initializeApp, FirebaseApp, getApps, deleteApp } from "firebase/app";
 import { getFirestore, doc, setDoc, onSnapshot, updateDoc, Firestore } from "firebase/firestore";
 
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
+
+// Helper to strip undefined values which Firestore rejects
+const sanitizePayload = (payload: any) => {
+  return JSON.parse(JSON.stringify(payload));
+};
 
 export const initFirebase = async (config: any) => {
   const apps = getApps();
@@ -44,11 +48,12 @@ export const FirebaseSync = {
     try {
       const schoolRef = doc(db, "schools", schoolId);
       // We add a 'lastActive' field so Admin can sort schools by most recent activity
-      await updateDoc(schoolRef, {
+      const safeUpdates = sanitizePayload({
         ...updates,
         "metadata.lastActive": Date.now(),
         "metadata.systemVersion": "2.5"
       });
+      await updateDoc(schoolRef, safeUpdates);
     } catch (e) {
       console.warn("Firestore Update Failed:", e);
     }
@@ -58,14 +63,15 @@ export const FirebaseSync = {
     if (!db || !schoolId) return;
     try {
       const schoolRef = doc(db, "schools", schoolId);
-      await setDoc(schoolRef, {
+      const safeState = sanitizePayload({
         ...state,
         metadata: {
           ...state.metadata,
           lastActive: Date.now(),
-          setupDate: state.metadata.setupDate || Date.now()
+          setupDate: state.metadata?.setupDate || Date.now()
         }
       });
+      await setDoc(schoolRef, safeState);
     } catch (e) {
       console.error("Firestore Set State Failed:", e);
     }

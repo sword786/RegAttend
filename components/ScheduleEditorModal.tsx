@@ -1,6 +1,5 @@
-
-import React, { useState, useEffect } from 'react';
-import { X, Trash2, Save, AlertCircle, Layers, Users, GraduationCap, MapPin, Pencil, User, ChevronDown, BookOpen, Check } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, Trash2, AlertCircle, Layers, Users, GraduationCap, MapPin, Pencil, ChevronDown, BookOpen, Check } from 'lucide-react';
 import { TimetableEntry } from '../types';
 import { useData } from '../contexts/DataContext';
 
@@ -19,24 +18,43 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
     isOpen, onClose, onSave, day, period, currentEntry, entityName, entityType 
 }) => {
   const { entities } = useData();
+
+  // Memoize target entities to ensure stable references
+  const targetEntities = useMemo(() => 
+    entities.filter(e => e.type !== entityType), 
+  [entities, entityType]);
+
+  const classesOnly = useMemo(() => 
+    entities.filter(e => e.type === 'CLASS'),
+  [entities]);
+
+  const teachersOnly = useMemo(() => 
+    entities.filter(e => e.type === 'TEACHER'),
+  [entities]);
+
   const [subject, setSubject] = useState(currentEntry?.subject || '');
   const [room, setRoom] = useState(currentEntry?.room || '');
-  const [relatedCode, setRelatedCode] = useState(currentEntry?.teacherOrClass || '');
+  
+  // Robust initialization for relatedCode (Teacher/Class link)
+  // Attempts to find a matching entity by ID, Name, or ShortCode to ensure the dropdown is pre-selected correctly
+  const [relatedCode, setRelatedCode] = useState(() => {
+    const raw = currentEntry?.teacherOrClass;
+    if (!raw) return '';
+    const match = targetEntities.find(e => 
+        e.id === raw || 
+        e.name === raw || 
+        e.shortCode === raw
+    );
+    // Return the canonical value used in <option> tags (shortCode fallback to name)
+    return match ? (match.shortCode || match.name) : raw;
+  });
+
   const [sessionType, setSessionType] = useState<'normal' | 'split' | 'combined'>(currentEntry?.type || 'normal');
-  
-  // Combined selection
   const [selectedClasses, setSelectedClasses] = useState<string[]>(currentEntry?.targetClasses || []);
-  
-  // Split selection
   const [splitSubject, setSplitSubject] = useState(currentEntry?.splitSubject || '');
   const [splitTeacher, setSplitTeacher] = useState(currentEntry?.splitTeacher || '');
 
-  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const targetEntities = entities.filter(e => e.type !== entityType);
-  const classesOnly = entities.filter(e => e.type === 'CLASS');
-  const teachersOnly = entities.filter(e => e.type === 'TEACHER');
 
   const handleSave = () => {
     if (!subject.trim()) {
@@ -65,8 +83,8 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden ring-1 ring-white/20 max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden ring-1 ring-white/20 max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
         
         {/* Header */}
         <div className="p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
@@ -127,9 +145,13 @@ export const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
                     <div className="relative">
                         <select value={relatedCode} onChange={e => setRelatedCode(e.target.value)} className="w-full pl-4 pr-10 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-slate-800 font-black outline-none appearance-none cursor-pointer">
                             <option value="">-- No Selection --</option>
+                            {/* Display unlinked value if it exists but matches no option */}
+                            {relatedCode && !targetEntities.find(e => (e.shortCode || e.name) === relatedCode) && (
+                                <option value={relatedCode}>{relatedCode} (Unlinked)</option>
+                            )}
                             {targetEntities.map(e => <option key={e.id} value={e.shortCode || e.name}>{e.name} ({e.shortCode || '??'})</option>)}
                         </select>
-                        <ChevronDown className="absolute right-4 top-4 w-4 h-4 text-slate-300" />
+                        <ChevronDown className="absolute right-4 top-4 w-4 h-4 text-slate-300 pointer-events-none" />
                     </div>
                 </div>
             )}

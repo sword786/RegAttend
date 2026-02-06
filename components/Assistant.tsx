@@ -1,7 +1,6 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Wand2 } from 'lucide-react';
-import { generateAiResponseWithTools } from '../services/geminiService';
+import { Send, Bot, User, Wand2, FileJson, X, ChevronRight, Loader2 } from 'lucide-react';
+import { generateAiResponseWithTools, processTextTimetableImport } from '../services/geminiService';
 import { ChatMessage, DayOfWeek, createEmptySchedule } from '../types';
 import { useData } from '../contexts/DataContext';
 
@@ -21,6 +20,8 @@ export const Assistant: React.FC = () => {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importText, setImportText] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,9 +31,9 @@ export const Assistant: React.FC = () => {
   }, [messages, loading]);
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
-
     const userText = input;
+    if (!userText.trim() || loading) return;
+
     const userMsg: ChatMessage = { role: 'user', text: userText, timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
@@ -102,7 +103,7 @@ export const Assistant: React.FC = () => {
             if (response.text) {
                 setMessages(prev => [...prev, { role: 'model', text: response.text!, timestamp: new Date() }]);
             } else {
-                setMessages(prev => [...prev, { role: 'model', text: "I've processed those changes for you.", timestamp: new Date() }]);
+                setMessages(prev => [...prev, { role: 'model', text: "I've updated the system according to your request.", timestamp: new Date() }]);
             }
         } else {
             setMessages(prev => [...prev, { role: 'model', text: response.text || "I'm sorry, I couldn't process that request.", timestamp: new Date() }]);
@@ -115,7 +116,37 @@ export const Assistant: React.FC = () => {
     }
   };
 
+  const handleImportSubmit = async () => {
+    if (!importText.trim()) return;
+    const text = importText;
+    setIsImportModalOpen(false);
+    setImportText('');
+    
+    // Optimistic UI update
+    setMessages(prev => [...prev, { role: 'user', text: `[Batch Import Request]: Processing raw timetable data...`, timestamp: new Date() }]);
+    setLoading(true);
+
+    try {
+        const result = await processTextTimetableImport(text);
+        if (result && result.profiles.length > 0) {
+            data.bulkImportData(result);
+            setMessages(prev => [...prev, { 
+                role: 'model', 
+                text: `✅ Batch Import Successful!\n\nImported ${result.profiles.length} profiles.\nThe schedule grid has been updated.`, 
+                timestamp: new Date() 
+            }]);
+        } else {
+            setMessages(prev => [...prev, { role: 'model', text: "⚠️ Import completed but no valid profiles were found. Please check the format.", timestamp: new Date() }]);
+        }
+    } catch (error: any) {
+        setMessages(prev => [...prev, { role: 'model', text: `❌ Import Failed: ${error.message || 'Unknown error'}`, timestamp: new Date() }]);
+    } finally {
+        setLoading(false);
+    }
+  };
+
   return (
+    <>
     <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col overflow-hidden min-h-[500px] h-[calc(100vh-12rem)] max-h-[800px]">
       <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -127,6 +158,13 @@ export const Assistant: React.FC = () => {
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Automating your school management</p>
             </div>
         </div>
+        <button 
+            onClick={() => setIsImportModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-600 transition-all shadow-sm"
+        >
+            <FileJson className="w-4 h-4 text-blue-500" />
+            Batch Import
+        </button>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
@@ -159,7 +197,7 @@ export const Assistant: React.FC = () => {
                     <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                     <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
-                <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Applying changes...</span>
+                <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Processing request...</span>
              </div>
           </div>
         )}
@@ -185,5 +223,40 @@ export const Assistant: React.FC = () => {
         </div>
       </div>
     </div>
+
+    {isImportModalOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
+                <div className="p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
+                    <div>
+                        <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-none">Batch Text Import</h3>
+                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-2">Paste raw timetable text to auto-parse</p>
+                    </div>
+                    <button onClick={() => setIsImportModalOpen(false)} className="p-2 hover:bg-white rounded-2xl border border-transparent hover:border-slate-200 transition-all">
+                        <X className="w-6 h-6 text-slate-400"/>
+                    </button>
+                </div>
+                <div className="p-8 space-y-4">
+                    <textarea 
+                        value={importText}
+                        onChange={e => setImportText(e.target.value)}
+                        placeholder={`Paste timetable here, e.g.:\n\nSecondary First Year\nSat: 1: DOUR (US) | 2: ARB (MNV)...\nSun: 1: DOUR (US) | 2: ENG (IYS)...`}
+                        className="w-full h-64 p-6 bg-slate-50 border border-slate-200 rounded-3xl font-mono text-xs leading-relaxed outline-none focus:ring-4 focus:ring-indigo-500/10 resize-none shadow-inner"
+                    />
+                    <div className="flex justify-end">
+                        <button 
+                            onClick={handleImportSubmit}
+                            disabled={!importText.trim() || loading}
+                            className="px-8 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+                            {loading ? 'Processing...' : 'Process Import'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )}
+    </>
   );
 };
