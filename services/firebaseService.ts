@@ -6,7 +6,6 @@ import {
   deleteField,
   Firestore,
   initializeFirestore,
-  CACHE_SIZE_UNLIMITED,
   persistentLocalCache,
   persistentMultipleTabManager
 } from "firebase/firestore";
@@ -47,8 +46,8 @@ export const initFirebase = async (config: any) => {
 
     // Initialize Firestore with settings optimized for offline usage
     db = initializeFirestore(app, {
-      cacheSizeBytes: CACHE_SIZE_UNLIMITED,
       localCache: persistentLocalCache({
+        cacheSizeBytes: 40 * 1024 * 1024,
         tabManager: persistentMultipleTabManager(),
       }),
     });
