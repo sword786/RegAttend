@@ -1,15 +1,14 @@
 import { initializeApp, FirebaseApp, getApps, deleteApp } from "firebase/app";
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
-  onSnapshot, 
-  updateDoc, 
+import {
+  doc,
+  setDoc,
+  onSnapshot,
+  updateDoc,
   deleteField,
   Firestore,
-  enableIndexedDbPersistence,
   initializeFirestore,
-  CACHE_SIZE_UNLIMITED
+  persistentLocalCache,
+  persistentMultipleTabManager,
 } from "firebase/firestore";
 
 let app: FirebaseApp | null = null;
@@ -20,37 +19,69 @@ const sanitizePayload = (payload: any) => {
   return JSON.parse(JSON.stringify(payload));
 };
 
-export const initFirebase = async (config: any) => {
-  const apps = getApps();
-  if (apps.length > 0) {
-    try {
-      await Promise.all(apps.map(existingApp => deleteApp(existingApp)));
-    } catch (e) {
-      console.warn("Clean up failed:", e);
+const isNotFoundError = (error: unknown) => {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'not-found';
+};
+
+const normalizeDottedKeys = (payload: Record<string, any>) => {
+  const normalized: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (!key.includes('.')) {
+      normalized[key] = value;
+      continue;
     }
+
+    const parts = key.split('.');
+    const lastPart = parts.pop();
+    if (!lastPart) continue;
+
+    let current = normalized;
+    for (const part of parts) {
+      if (typeof current[part] !== 'object' || current[part] === null) {
+        current[part] = {};
+      }
+      current = current[part];
+    }
+    current[lastPart] = value;
   }
 
-  if (!config || !config.apiKey || !config.projectId) return false;
-  
-  try {
-    app = initializeApp(config);
-    
-    // Initialize Firestore with settings optimized for offline usage
-    db = initializeFirestore(app, {
-      cacheSizeBytes: CACHE_SIZE_UNLIMITED
-    });
+  return normalized;
+};
 
-    // Enable Offline Persistence
-    try {
-      await enableIndexedDbPersistence(db);
-      console.log("Offline persistence enabled");
-    } catch (err: any) {
-      if (err.code == 'failed-precondition') {
-        console.warn("Persistence failed: Multiple tabs open");
-      } else if (err.code == 'unimplemented') {
-        console.warn("Persistence not supported by browser");
+export const initFirebase = async (config: any) => {
+  if (!config || !config.apiKey || !config.projectId) return false;
+
+  try {
+    // Reset existing app only when changing firebase project.
+    if (app && app.options.projectId !== config.projectId) {
+      try {
+        await deleteApp(app);
+      } catch (e) {
+        console.warn("Clean up failed:", e);
+      } finally {
+        app = null;
+        db = null;
       }
     }
+
+    if (db && app?.options.projectId === config.projectId) return true;
+
+    const existingApp = getApps()[0];
+    app = existingApp ?? initializeApp(config);
+
+    if (existingApp && existingApp.options.projectId !== config.projectId) {
+      await deleteApp(existingApp);
+      app = initializeApp(config);
+    }
+
+    // Initialize Firestore with settings optimized for offline usage
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        cacheSizeBytes: 40 * 1024 * 1024,
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
 
     return true;
   } catch (e) {
@@ -79,9 +110,15 @@ export const FirebaseSync = {
       const safeUpdates = sanitizePayload({
         ...updates,
         "metadata.lastActive": Date.now(),
-        "metadata.systemVersion": "2.5"
+        "metadata.systemVersion": "2.5",
       });
-      await updateDoc(schoolRef, safeUpdates);
+
+      try {
+        await updateDoc(schoolRef, safeUpdates);
+      } catch (error) {
+        if (!isNotFoundError(error)) throw error;
+        await setDoc(schoolRef, normalizeDottedKeys(safeUpdates), { merge: true });
+      }
     } catch (e) {
       console.warn("Firestore Update Failed (likely offline, queued):", e);
     }
@@ -91,12 +128,19 @@ export const FirebaseSync = {
     if (!db || !schoolId) return;
     try {
       const schoolRef = doc(db, "schools", schoolId);
-      await updateDoc(schoolRef, {
+      const updates = {
         [`devices.${device.id}`]: device,
-        "metadata.lastActive": Date.now()
-      });
+        "metadata.lastActive": Date.now(),
+      };
+
+      try {
+        await updateDoc(schoolRef, updates);
+      } catch (error) {
+        if (!isNotFoundError(error)) throw error;
+        await setDoc(schoolRef, normalizeDottedKeys(updates), { merge: true });
+      }
     } catch (e) {
-        console.warn("Device Register Failed", e);
+      console.warn("Device Register Failed", e);
     }
   },
 
@@ -105,10 +149,12 @@ export const FirebaseSync = {
     try {
       const schoolRef = doc(db, "schools", schoolId);
       await updateDoc(schoolRef, {
-        [`devices.${deviceId}`]: deleteField()
+        [`devices.${deviceId}`]: deleteField(),
       });
-    } catch (e) {
-        console.warn("Device Removal Failed", e);
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        console.warn("Device Removal Failed", error);
+      }
     }
   },
 
@@ -121,8 +167,8 @@ export const FirebaseSync = {
         metadata: {
           ...state.metadata,
           lastActive: Date.now(),
-          setupDate: state.metadata?.setupDate || Date.now()
-        }
+          setupDate: state.metadata?.setupDate || Date.now(),
+        },
       });
       await setDoc(schoolRef, safeState);
     } catch (e) {
@@ -135,12 +181,14 @@ export const FirebaseSync = {
     try {
       const schoolRef = doc(db, "schools", schoolId);
       return onSnapshot(schoolRef, { includeMetadataChanges: true }, (snapshot) => {
-        // We accept both server updates and local cache updates
-        if (snapshot.exists()) onUpdate(snapshot.data());
+        if (!snapshot.exists()) return;
+        // defensive normalization for any historical malformed dotted keys
+        const normalizedData = normalizeDottedKeys(snapshot.data());
+        onUpdate(normalizedData);
       });
     } catch (e) {
       console.error("Subscribe Logic Error:", e);
       return () => {};
     }
-  }
+  },
 };
