@@ -1,15 +1,14 @@
 import { initializeApp, FirebaseApp, getApps, deleteApp } from "firebase/app";
 import { 
-  getFirestore, 
   doc, 
   setDoc, 
   onSnapshot, 
-  updateDoc, 
   deleteField,
   Firestore,
-  enableIndexedDbPersistence,
   initializeFirestore,
-  CACHE_SIZE_UNLIMITED
+  CACHE_SIZE_UNLIMITED,
+  persistentLocalCache,
+  persistentMultipleTabManager
 } from "firebase/firestore";
 
 let app: FirebaseApp | null = null;
@@ -21,36 +20,38 @@ const sanitizePayload = (payload: any) => {
 };
 
 export const initFirebase = async (config: any) => {
-  const apps = getApps();
-  if (apps.length > 0) {
-    try {
-      await Promise.all(apps.map(existingApp => deleteApp(existingApp)));
-    } catch (e) {
-      console.warn("Clean up failed:", e);
-    }
-  }
-
   if (!config || !config.apiKey || !config.projectId) return false;
   
   try {
-    app = initializeApp(config);
-    
-    // Initialize Firestore with settings optimized for offline usage
-    db = initializeFirestore(app, {
-      cacheSizeBytes: CACHE_SIZE_UNLIMITED
-    });
-
-    // Enable Offline Persistence
-    try {
-      await enableIndexedDbPersistence(db);
-      console.log("Offline persistence enabled");
-    } catch (err: any) {
-      if (err.code == 'failed-precondition') {
-        console.warn("Persistence failed: Multiple tabs open");
-      } else if (err.code == 'unimplemented') {
-        console.warn("Persistence not supported by browser");
+    // Reset existing app only when changing firebase project.
+    if (app && app.options.projectId !== config.projectId) {
+      try {
+        await deleteApp(app);
+      } catch (e) {
+        console.warn("Clean up failed:", e);
+      } finally {
+        app = null;
+        db = null;
       }
     }
+
+    if (db && app?.options.projectId === config.projectId) return true;
+
+    const existingApp = getApps()[0];
+    app = existingApp ?? initializeApp(config);
+
+    if (existingApp && existingApp.options.projectId !== config.projectId) {
+      await deleteApp(existingApp);
+      app = initializeApp(config);
+    }
+
+    // Initialize Firestore with settings optimized for offline usage
+    db = initializeFirestore(app, {
+      cacheSizeBytes: CACHE_SIZE_UNLIMITED,
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
 
     return true;
   } catch (e) {
@@ -81,7 +82,7 @@ export const FirebaseSync = {
         "metadata.lastActive": Date.now(),
         "metadata.systemVersion": "2.5"
       });
-      await updateDoc(schoolRef, safeUpdates);
+      await setDoc(schoolRef, safeUpdates, { merge: true });
     } catch (e) {
       console.warn("Firestore Update Failed (likely offline, queued):", e);
     }
@@ -91,10 +92,10 @@ export const FirebaseSync = {
     if (!db || !schoolId) return;
     try {
       const schoolRef = doc(db, "schools", schoolId);
-      await updateDoc(schoolRef, {
+      await setDoc(schoolRef, {
         [`devices.${device.id}`]: device,
         "metadata.lastActive": Date.now()
-      });
+      }, { merge: true });
     } catch (e) {
         console.warn("Device Register Failed", e);
     }
@@ -104,9 +105,9 @@ export const FirebaseSync = {
     if (!db || !schoolId) return;
     try {
       const schoolRef = doc(db, "schools", schoolId);
-      await updateDoc(schoolRef, {
+      await setDoc(schoolRef, {
         [`devices.${deviceId}`]: deleteField()
-      });
+      }, { merge: true });
     } catch (e) {
         console.warn("Device Removal Failed", e);
     }
