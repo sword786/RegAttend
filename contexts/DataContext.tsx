@@ -337,22 +337,64 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateSchedule = (entityId: string, day: string, period: number, entry: TimetableEntry | null) => {
-     setEntities(prev => {
-         const next = prev.map(e => {
-             if (e.id !== entityId) return e;
-             const newSchedule = { ...e.schedule };
-             if (!newSchedule[day as DayOfWeek]) newSchedule[day as DayOfWeek] = {};
-             
-             if (entry === null) {
-                 delete newSchedule[day as DayOfWeek]![period];
-             } else {
-                 newSchedule[day as DayOfWeek]![period] = entry;
-             }
-             return { ...e, schedule: newSchedule };
-         });
-         pushToCloud('registry', 'entities', next);
-         return next;
-     });
+    setEntities(prev => {
+      const source = prev.find(e => e.id === entityId);
+      if (!source) return prev;
+
+      const dayKey = day as DayOfWeek;
+      const sourceIdentifier = source.shortCode || source.name;
+      const sourceType = source.type;
+      const oppositeType = sourceType === 'TEACHER' ? 'CLASS' : 'TEACHER';
+
+      const resolveCounterpart = (raw?: string) => {
+        if (!raw) return undefined;
+        return prev.find(e =>
+          e.type === oppositeType && (e.id === raw || e.shortCode === raw || e.name === raw)
+        );
+      };
+
+      const previousEntry = source.schedule?.[dayKey]?.[period] || null;
+      const previousCounterpart = resolveCounterpart(previousEntry?.teacherOrClass);
+      const nextCounterpart = resolveCounterpart(entry?.teacherOrClass);
+
+      const next = prev.map(entity => {
+        if (entity.id !== entityId && entity.id !== previousCounterpart?.id && entity.id !== nextCounterpart?.id) {
+          return entity;
+        }
+
+        const newSchedule = {
+          ...entity.schedule,
+          [dayKey]: { ...(entity.schedule?.[dayKey] || {}) }
+        };
+
+        if (entity.id === entityId) {
+          if (entry === null) {
+            delete newSchedule[dayKey][period];
+          } else {
+            newSchedule[dayKey][period] = entry;
+          }
+        }
+
+        if (entity.id === previousCounterpart?.id) {
+          const currentMirror = newSchedule[dayKey][period];
+          if (currentMirror?.teacherOrClass === sourceIdentifier) {
+            delete newSchedule[dayKey][period];
+          }
+        }
+
+        if (entity.id === nextCounterpart?.id && entry) {
+          newSchedule[dayKey][period] = {
+            ...entry,
+            teacherOrClass: sourceIdentifier,
+          };
+        }
+
+        return { ...entity, schedule: newSchedule };
+      });
+
+      pushToCloud('registry', 'entities', next);
+      return next;
+    });
   };
 
   const bulkImportData = (payload: BulkImportPayload) => {
