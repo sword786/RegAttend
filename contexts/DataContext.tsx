@@ -114,6 +114,54 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [studentAiImportStatus, setStudentAiImportStatus] = useState<AiImportStatus>('IDLE');
   const [studentAiImportResult, setStudentAiImportResult] = useState<AiStudentImportResult | null>(null);
 
+  const ensureReciprocalSchedules = useCallback((items: EntityProfile[]) => {
+    const next = items.map(entity => ({
+      ...entity,
+      schedule: Object.keys(entity.schedule || {}).reduce((acc, day) => {
+        acc[day as DayOfWeek] = { ...(entity.schedule?.[day as DayOfWeek] || {}) };
+        return acc;
+      }, {} as EntityProfile['schedule']),
+    }));
+
+    const teacherLookup = new Map<string, EntityProfile>();
+    const classLookup = new Map<string, EntityProfile>();
+
+    next.forEach(entity => {
+      [entity.id, entity.name, entity.shortCode].filter(Boolean).forEach(key => {
+        if (entity.type === 'TEACHER') teacherLookup.set(String(key), entity);
+        if (entity.type === 'CLASS') classLookup.set(String(key), entity);
+      });
+    });
+
+    next.forEach(source => {
+      const sourceIdentifier = source.shortCode || source.name;
+      const counterpartLookup = source.type === 'TEACHER' ? classLookup : teacherLookup;
+
+      Object.keys(source.schedule || {}).forEach(day => {
+        const dayKey = day as DayOfWeek;
+        const daySlots = source.schedule?.[dayKey];
+        if (!daySlots) return;
+
+        Object.keys(daySlots).forEach(periodKey => {
+          const period = Number(periodKey);
+          const slot = daySlots[period];
+          if (!slot?.teacherOrClass) return;
+
+          const counterpart = counterpartLookup.get(slot.teacherOrClass);
+          if (!counterpart) return;
+
+          if (!counterpart.schedule[dayKey]) counterpart.schedule[dayKey] = {};
+          counterpart.schedule[dayKey]![period] = {
+            ...slot,
+            teacherOrClass: sourceIdentifier,
+          };
+        });
+      });
+    });
+
+    return next;
+  }, []);
+
   // Initialize Firebase on mount if config exists
   useEffect(() => {
     if (firebaseConfig) {
@@ -136,7 +184,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if (data.metadata.primaryColor) setPrimaryColor(data.metadata.primaryColor);
         }
         if (data.registry) {
-            if (data.registry.entities) setEntities(data.registry.entities);
+            if (data.registry.entities) setEntities(ensureReciprocalSchedules(data.registry.entities));
             if (data.registry.students) setStudents(data.registry.students);
         }
         if (data.timing?.timeSlots) setTimeSlots(data.timing.timeSlots);
@@ -165,7 +213,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       return () => { unsubscribe(); connectionUnsub(); };
     }
-  }, [syncInfo.isPaired, syncInfo.schoolId, isFirebaseReady, userRole, syncInfo.deviceId]);
+  }, [syncInfo.isPaired, syncInfo.schoolId, isFirebaseReady, userRole, syncInfo.deviceId, ensureReciprocalSchedules]);
 
   useEffect(() => {
     if (!userRole) return;
@@ -431,8 +479,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               if (existingIndex >= 0) next[existingIndex] = profile;
               else next.push(profile);
           });
-          pushToCloud('registry', 'entities', next);
-          return next;
+          const normalized = ensureReciprocalSchedules(next);
+          pushToCloud('registry', 'entities', normalized);
+          return normalized;
       });
   };
 
@@ -537,8 +586,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                          });
                     }
                });
-               pushToCloud('registry', 'entities', next);
-               return next;
+               const normalized = ensureReciprocalSchedules(next);
+               pushToCloud('registry', 'entities', normalized);
+               return normalized;
           });
           
           setAiImportStatus('IDLE');
