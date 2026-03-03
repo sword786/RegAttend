@@ -1,30 +1,48 @@
 
 /**
  * SyncRelayService
- * Enables cross-device communication using a public signaling relay.
- * This allows "Mupini Connect" to sync between different phones/computers
- * without a dedicated private backend.
+ * Enables ultra-fast differential synchronization between paired devices.
+ * Instead of sending the full database, it sends granular "Action" packets.
  */
 
 const RELAY_URL = 'https://ntfy.sh';
 
+export type SyncActionType = 
+  | 'ATTENDANCE_UPDATE' 
+  | 'SCHEDULE_UPDATE' 
+  | 'STUDENT_CHANGE' 
+  | 'ENTITY_CHANGE' 
+  | 'SCHOOL_CONFIG_UPDATE';
+
+export interface SyncPacket {
+  type: SyncActionType;
+  senderId: string;
+  payload: any;
+  timestamp: number;
+}
+
 export const SyncRelayService = {
   /**
-   * Notify all paired devices that data has changed
+   * Broadcast a granular change to the cloud relay.
+   * Granular changes are small and fit easily within relay size limits (4KB).
    */
-  async broadcastChange(schoolId: string, changeType: string) {
-    if (!schoolId) return;
+  async broadcastChange(schoolId: string, senderId: string, type: SyncActionType, payload: any) {
+    if (!schoolId || !senderId) return;
+    
+    const packet: SyncPacket = {
+      type,
+      senderId,
+      payload,
+      timestamp: Date.now()
+    };
+
     try {
       await fetch(`${RELAY_URL}/mupini_${schoolId}`, {
         method: 'POST',
-        body: JSON.stringify({
-          type: 'DATA_CHANGE',
-          changeType,
-          timestamp: Date.now()
-        }),
+        body: JSON.stringify(packet),
         headers: {
-          'Title': 'Mupini Sync',
-          'Priority': '1'
+          'Title': 'Mupini Live Update',
+          'Priority': 'high'
         }
       });
     } catch (e) {
@@ -33,9 +51,9 @@ export const SyncRelayService = {
   },
 
   /**
-   * Subscribe to changes for a specific school
+   * Subscribe to real-time differential updates.
    */
-  subscribe(schoolId: string, onMessage: (data: any) => void) {
+  subscribe(schoolId: string, onAction: (packet: SyncPacket) => void) {
     if (!schoolId) return () => {};
 
     const eventSource = new EventSource(`${RELAY_URL}/mupini_${schoolId}/sse`);
@@ -43,15 +61,15 @@ export const SyncRelayService = {
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        // We only care about our specific protocol messages
         if (data.message) {
-          const payload = JSON.parse(data.message);
-          if (payload.type === 'DATA_CHANGE') {
-            onMessage(payload);
+          const packet: SyncPacket = JSON.parse(data.message);
+          // Standard check to ensure it's a valid protocol packet
+          if (packet.type && packet.senderId && packet.payload !== undefined) {
+            onAction(packet);
           }
         }
       } catch (e) {
-        // Not a protocol message, ignore
+        // Ignore non-protocol or malformed messages
       }
     };
 
