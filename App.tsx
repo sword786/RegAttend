@@ -10,6 +10,7 @@ import { DashboardHome } from './components/DashboardHome';
 import { Menu, Search, Pencil, Eye, LayoutGrid, ChevronDown, GraduationCap, Users, ShieldCheck, Sparkles, LogOut, ChevronRight, Palette, Wifi, AlertCircle, Monitor } from 'lucide-react';
 import { TimetableEntry, UserRole } from './types';
 import { DataProvider, useData } from './contexts/DataContext';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const RoleSelector: React.FC = () => {
   const { setUserRole, importSyncToken, primaryColor } = useData();
@@ -405,6 +406,7 @@ const App: React.FC = () => {
   return (
     <DataProvider>
       <DashboardContent />
+      <SpeedInsights />
     </DataProvider>
   );
 };
